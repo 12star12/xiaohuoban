@@ -738,17 +738,26 @@ const App = {
       answerUI = `<input type="text" class="blank-input" id="blankInput" placeholder="输入你的答案">
       <div class="quiz-footer"><span></span><button class="btn primary" onclick="App.submitBlank()">提交答案</button></div>`;
     } else {
-      answerUI = `<div class="answer-box ok" style="background:var(--paper-2);border-color:var(--line)">
-        <div class="answer-label">参考答案</div>${this.esc(q.answer)}
-        ${q.explanation ? '<div style="margin-top:8px;font-size:12.5px;color:var(--ink-2)">' + this.esc(q.explanation) + '</div>' : ''}
-      </div>
-      <div style="margin-top:16px;font-size:13px;color:var(--ink-2)">刚才这道题，你掌握得怎么样？</div>
-      <div class="self-assess">
-        <button onclick="App.submitSelf('① 空白')">① 完全没思路</button>
-        <button onclick="App.submitSelf('② 算错')">② 有思路算错</button>
-        <button onclick="App.submitSelf('③ 慢但对')">③ 慢但对</button>
-        <button onclick="App.submitSelf('④ 快而准')">④ 快而准</button>
-      </div>`;
+      // 简答/计算题：先自己写思路，点「看参考答案」才展开，避免一眼看到答案
+      answerUI = `
+        <textarea class="blank-input calc-input" id="calcInput" placeholder="先写下你的思路或计算过程（也可以不写，想好就直接看答案）"></textarea>
+        <div class="quiz-footer">
+          <span>先自己想一想，再看答案印象更深</span>
+          <button class="btn primary" id="revealBtn" onclick="App.revealCalcAnswer()">看参考答案 →</button>
+        </div>
+        <div id="calcReveal" style="display:none">
+          <div class="answer-box ok" style="background:var(--paper-2);border-color:var(--line)">
+            <div class="answer-label">参考答案</div>${this.esc(q.answer)}
+            ${q.explanation ? '<div style="margin-top:8px;font-size:12.5px;color:var(--ink-2)">' + this.esc(q.explanation) + '</div>' : ''}
+          </div>
+          <div style="margin-top:16px;font-size:13px;color:var(--ink-2)">对照答案后，这道题你掌握得怎么样？</div>
+          <div class="self-assess">
+            <button onclick="App.submitSelf('① 空白')">① 完全没思路</button>
+            <button onclick="App.submitSelf('② 算错')">② 有思路算错</button>
+            <button onclick="App.submitSelf('③ 慢但对')">③ 慢但对</button>
+            <button onclick="App.submitSelf('④ 快而准')">④ 快而准</button>
+          </div>
+        </div>`;
     }
 
     el.innerHTML = `
@@ -816,11 +825,23 @@ const App = {
     await this.afterAnswer(correct, val, q);
   },
 
+  /** 简答/计算题：先藏起答案，点了才展开 */
+  revealCalcAnswer() {
+    const box = document.getElementById('calcReveal');
+    if (!box) return;
+    box.style.display = 'block';
+    const btn = document.getElementById('revealBtn');
+    if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+  },
+
   async submitSelf(assessment) {
     const q = this.quizQueue[this.quizIndex];
     const correct = assessment.indexOf('④') >= 0 || assessment.indexOf('③') >= 0;
+    const input = document.getElementById('calcInput');
+    const draft = input && input.value ? input.value.trim() : '';
+    const userAnswer = draft ? `我的作答：${draft}\n自评：${assessment}` : assessment;
     document.querySelectorAll('.self-assess button').forEach(b => b.onclick = null);
-    await this.afterAnswer(correct, assessment, q);
+    await this.afterAnswer(correct, userAnswer, q);
   },
 
   async afterAnswer(correct, userAnswer, q) {
