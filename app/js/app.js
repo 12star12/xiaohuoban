@@ -661,13 +661,34 @@ const App = {
     if (enc) this.showEncourage(enc);
   },
 
-  /** 题目答案/解析对不上时，就地改掉（写回题库，之后按新答案判分） */
+  /** 题目答案/解析对不上时，就地改答案或删掉（写回题库） */
   async fixQuestion() {
     const q = this.quizQueue[this.quizIndex];
     if (!q) return;
-    const v = prompt('这题的正确答案应该是（选择题填字母 A/B/C/D）：', String(q.answer || ''));
+    const v = prompt('这题的正确答案应该是（选择题填字母 A/B/C/D）？\n直接输入「删」可以删掉这道废题：', String(q.answer || ''));
     if (v === null || !v.trim()) return;
-    q.answer = v.trim();
+    const val = v.trim();
+
+    if (val === '删' || val === '删除') {
+      if (!confirm('确定删掉这道题吗？删了就没了，题库题数会相应减少。')) return;
+      try {
+        await DB.deleteQuestion(q.id);
+        const bank = (await DB.getBanks()).find(b => b.id === q.bankId);
+        if (bank) {
+          bank.count = Math.max(0, (bank.count || 1) - 1);
+          await DB.putBank(bank);
+        }
+        this.quizQueue.splice(this.quizIndex, 1);
+        if (!this.quizQueue.length) { this.renderQuizDone(); return; }
+        if (this.quizIndex >= this.quizQueue.length) this.quizIndex = this.quizQueue.length - 1;
+        this.renderQuestion();
+      } catch (e) {
+        alert('删除失败：' + e.message);
+      }
+      return;
+    }
+
+    q.answer = val;
     const copy = Object.assign({}, q);
     delete copy._warn;
     try {

@@ -110,6 +110,9 @@
     async allQuestions() {
       return tx('questions', 'readonly', s => reqToPromise(s.getAll()));
     },
+    async deleteQuestion(id) {
+      return tx('questions', 'readwrite', s => s.delete(id));
+    },
 
     // 答题记录（每条记录不可变，只增不改，避免重复计数）
     async addAttempt(a) {
