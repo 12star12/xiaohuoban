@@ -49,7 +49,7 @@ const App = {
     const renders = {
       home: () => this.renderHome(),
       library: () => this.renderLibrary(),
-      import: () => this.renderModelStatus(),
+      import: () => { this.renderModelStatus(); this.detectImport(); },
       practice: () => this.renderPracticeSelect(),
       history: () => this.renderHistory(),
       wrong: () => this.renderWrong(),
@@ -302,6 +302,7 @@ const App = {
     const ta = document.getElementById('importText');
     ta.addEventListener('input', () => {
       document.getElementById('charCount').textContent = ta.value.length + ' 字';
+      this.detectImport();
     });
     document.getElementById('importFile').addEventListener('change', async (e) => {
       const f = e.target.files[0];
@@ -329,6 +330,63 @@ const App = {
         e.target.value = '';
       }
     });
+  },
+
+  /* ---------- 导入模式：现成题目就只整理，知识点整理才让模型出题 ---------- */
+  detectImport() {
+    const ta = document.getElementById('importText');
+    this._detect = LLM.detect(ta ? ta.value : '');
+    this.applyImportMode();
+  },
+
+  /** 生效的模式：手动指定优先，其次用识别结果 */
+  importMode() {
+    if (this._importMode === 'extract' || this._importMode === 'generate') return this._importMode;
+    return (this._detect && this._detect.mode) || 'generate';
+  },
+
+  /** 在「整理原题」和「让模型出题」之间手动切换 */
+  toggleImportMode() {
+    this._importMode = this.importMode() === 'extract' ? 'generate' : 'extract';
+    this.applyImportMode();
+  },
+
+  applyImportMode() {
+    const tag = document.getElementById('modeTag');
+    const txt = document.getElementById('modeText');
+    const btn = document.getElementById('modeBtn');
+    if (!tag || !txt) return;
+
+    const d = this._detect || { mode: 'generate', questions: 0 };
+    const mode = this.importMode();
+    const head = this._importMode ? '已按你的选择：' : '';
+    const row = document.getElementById('perChapterRow');
+    const hint = document.getElementById('perChapterHint');
+    const gen = document.getElementById('genBtn');
+
+    if (mode === 'extract') {
+      const n = d.questions ? `（约 ${d.questions} 道）` : '';
+      tag.textContent = '整理原题';
+      tag.className = 'mode-tag ok';
+      txt.textContent = head
+        ? head + '原样整理资料里的题目，不额外出题。'
+        : (d.mode === 'extract' ? `识别到这是现成题目${n}，` : '') + '原样整理，不额外出题。';
+      if (btn) btn.textContent = '改让模型出题';
+      if (row) row.style.display = 'none';
+      if (hint) hint.style.display = 'none';
+      if (gen) gen.textContent = '整理成题库';
+    } else {
+      tag.textContent = '让模型出题';
+      tag.className = 'mode-tag';
+      txt.textContent = head
+        ? head + '按章节把知识点变成选择题。'
+        : '没发现现成题目，按章节把知识点变成选择题。';
+      if (btn) btn.textContent = '这是现成题目';
+      if (row) row.style.display = '';
+      if (hint) hint.style.display = '';
+      if (gen) gen.textContent = '生成题库';
+    }
+    if (btn) btn.style.display = '';
   },
 
   /** 用 pdf.js 提取 PDF 文字（逐页） */
@@ -395,18 +453,21 @@ const App = {
     const btn = document.getElementById('genBtn');
     const sel = document.getElementById('perChapter');
     const perChapter = sel ? (parseInt(sel.value, 10) || 5) : 5;
+    const mode = this.importMode();
     btn.disabled = true;
-    this.showLoading('正在阅读资料并出题…');
+    this.showLoading(mode === 'extract' ? '正在整理资料里的原题…' : '正在阅读资料并出题…');
     try {
-      const result = await LLM.structure(text, { perChapter }, (msg) => this.setLoadingText(msg));
+      const result = await LLM.structure(text, { perChapter, mode }, (msg) => this.setLoadingText(msg));
       if (!result.questions.length) {
-        alert('模型没有从资料中提取到题目。试试粘贴更完整的题目或知识点内容。');
+        alert(mode === 'extract'
+          ? '没整理出题目。如果这份资料其实是知识点整理，点右上角的「这是现成题目／改让模型出题」切回出题模式。'
+          : '模型没有从资料中提取到题目。试试粘贴更完整的题目或知识点内容。');
         return;
       }
       this._preview = result;
       this.renderPreview(result);
       if (result.skipped) {
-        alert(`资料较长，只处理了前 ${result.segments} 段（末尾 ${result.skipped} 段未处理）。\n建议按章节拆成几份分别导入，题量会更完整。`);
+        alert(`资料较长，只处理了前 ${result.batches} 批（末尾约 ${result.skipped} 批未处理）。\n建议拆成几份分别导入，题量会更完整。`);
       }
     } catch (e) {
       alert('生成失败：' + e.message);
@@ -420,14 +481,21 @@ const App = {
     const area = document.getElementById('previewArea');
     const typeLabel = { choice: '选择题', blank: '填空题', calculation: '计算/简答题' };
     const suspect = result.questions.filter(q => q._warn).length;
+    const inferred = result.questions.filter(q => q.answerSource === 'inferred').length;
     const items = result.questions.map((q, i) => {
-      const ansKey = String(q.answer || '').trim().charAt(0).toUpperCase();
+      const letters = (String(q.answer || '').toUpperCase().match(/[A-D]/g) || []);
+      const kind = q.type === 'choice' ? (letters.length > 1 ? '多选题' : '单选题') : (typeLabel[q.type] || q.type);
+      const flags = [
+        q.origin === 'rewritten' ? '<span class="pv-flag">开放题改写</span>' : '',
+        q.answerSource === 'inferred' ? '<span class="pv-flag warn">答案由模型补</span>' : ''
+      ].join('');
       const opts = (q.options || []).length ? `<div class="pv-opts">${q.options.map(o => {
-        const hit = q.type === 'choice' && String(o).trim().charAt(0).toUpperCase() === ansKey;
+        const k = String(o).trim().charAt(0).toUpperCase();
+        const hit = q.type === 'choice' && letters.indexOf(k) >= 0;
         return `<div class="pv-opt ${hit ? 'hit' : ''}">${this.esc(o)}</div>`;
       }).join('')}</div>` : '';
       return `<div class="preview-q">
-        <div class="preview-q-type">${i+1}. ${typeLabel[q.type] || q.type}${q.origin === 'rewritten' ? ' · 由开放题改写' : ''}　${(q.tags||[]).map(t=>'<span class="tag">'+this.esc(t)+'</span>').join(' ')}</div>
+        <div class="preview-q-type">${i+1}. ${kind}　${flags}${(q.tags||[]).map(t=>'<span class="tag">'+this.esc(t)+'</span>').join(' ')}</div>
         <div class="preview-q-stem">${this.esc(q.stem)}</div>
         ${opts}
         <div class="pv-answer">答案 <b>${this.esc(q.answer)}</b>${q.explanation ? `<span class="pv-exp">${this.esc(q.explanation)}</span>` : ''}</div>
@@ -442,8 +510,9 @@ const App = {
       <div class="preview-box">
         <div class="preview-head">
           <div>
-            <div class="panel-title" style="margin-bottom:2px">预览：${this.esc(result.title)}（共 ${result.questions.length} 题）</div>
+            <div class="panel-title" style="margin-bottom:2px">预览：${this.esc(result.title)}（共 ${result.questions.length} 题${result.mode === 'extract' ? ' · 原题整理' : ''}）</div>
             <div class="hint-text" style="margin-top:0">${this.esc(result.summary)}</div>
+            ${inferred ? `<div class="pv-warn" style="margin-top:8px">有 ${inferred} 道原文没给答案，是模型自己判断的，建议保存前核对一眼。</div>` : ''}
             ${suspect ? `<div class="pv-warn" style="margin-top:8px">有 ${suspect} 道题被系统标为「可能有问题」（答案与解析对不上），保存前建议逐题看一眼，或直接改答案 / 删掉。</div>` : ''}
           </div>
           <button class="btn primary" onclick="App.savePreview()">保存到题库</button>
@@ -557,13 +626,16 @@ const App = {
     }
     const q = this.quizQueue[this.quizIndex];
     const typeLabel = { choice: '选择题', blank: '填空题', calculation: '计算 / 简答题' };
+    const ansLetters = (String(q.answer || '').toUpperCase().match(/[A-D]/g) || []);
+    const isMulti = q.type === 'choice' && ansLetters.length > 1;
+    const kindLabel = q.type === 'choice' ? (isMulti ? '多选题' : '单选题') : (typeLabel[q.type] || '题目');
     let answerUI = '';
     if (q.type === 'choice') {
       answerUI = `<div class="quiz-options">${q.options.map((o, i) => {
         const key = String.fromCharCode(65 + i);
         return `<button class="quiz-option" data-key="${key}" onclick="App.selectChoice('${key}', this)"><span class="opt-key">${key}.</span>${this.esc(o.replace(/^[A-D][\.、]\s*/, ''))}</button>`;
       }).join('')}</div>
-      <div class="quiz-footer"><span></span><button class="btn primary" id="submitBtn" disabled onclick="App.submitChoice()">提交答案</button></div>`;
+      <div class="quiz-footer"><span>${isMulti ? '多选题 · 选出全部正确项' : ''}</span><button class="btn primary" id="submitBtn" disabled onclick="App.submitChoice()">提交答案</button></div>`;
     } else if (q.type === 'blank') {
       answerUI = `<input type="text" class="blank-input" id="blankInput" placeholder="输入你的答案">
       <div class="quiz-footer"><span></span><button class="btn primary" onclick="App.submitBlank()">提交答案</button></div>`;
@@ -591,7 +663,7 @@ const App = {
           </div>
         </div>
         <div class="quiz-q-card">
-          <div class="quiz-q-num">${typeLabel[q.type] || '题目'}　${(q.tags||[]).slice(0,3).map(t=>'<span class="tag">'+this.esc(t)+'</span>').join(' ')}</div>
+          <div class="quiz-q-num">${kindLabel}　${(q.tags||[]).slice(0,3).map(t=>'<span class="tag">'+this.esc(t)+'</span>').join(' ')}</div>
           <div class="quiz-q-stem">${this.esc(q.stem)}</div>
           <div id="answerZone">${answerUI}</div>
           <div id="feedbackZone"></div>
@@ -601,21 +673,37 @@ const App = {
     this._qStart = Date.now();
   },
 
+  /** 多选题：answer 是多个字母（如 "ABD"）时按多选作答 */
+  isMultiChoice(q) {
+    return ((String(q.answer || '').toUpperCase().match(/[A-D]/g) || []).length > 1);
+  },
+
   selectChoice(key, btn) {
-    this._selected = key;
-    document.querySelectorAll('.quiz-option').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
+    const q = this.quizQueue[this.quizIndex];
+    if (this.isMultiChoice(q)) {
+      btn.classList.toggle('selected');
+      const cur = new Set(String(this._selected || '').split('').filter(Boolean));
+      if (cur.has(key)) cur.delete(key); else cur.add(key);
+      this._selected = Array.from(cur).sort().join('');
+    } else {
+      this._selected = key;
+      document.querySelectorAll('.quiz-option').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    }
     const sub = document.getElementById('submitBtn');
-    if (sub) sub.disabled = false;
+    if (sub) sub.disabled = !this._selected;
   },
 
   async submitChoice() {
     const q = this.quizQueue[this.quizIndex];
-    const correct = this._selected === q.answer.trim().charAt(0).toUpperCase();
+    const multi = this.isMultiChoice(q);
+    const right = (String(q.answer || '').toUpperCase().match(/[A-D]/g) || []).sort().join('');
+    const mine = String(this._selected || '');
+    const correct = mine !== '' && (multi ? mine === right : mine.charAt(0) === right.charAt(0));
     document.querySelectorAll('.quiz-option').forEach(b => {
       const k = b.dataset.key;
-      if (k === q.answer.trim().charAt(0).toUpperCase()) b.classList.add('correct');
-      else if (k === this._selected) b.classList.add('wrong');
+      if (right.indexOf(k) >= 0) b.classList.add('correct');
+      else if (multi ? mine.indexOf(k) >= 0 : k === mine) b.classList.add('wrong');
       b.onclick = null;
     });
     const sub = document.getElementById('submitBtn'); if (sub) sub.remove();

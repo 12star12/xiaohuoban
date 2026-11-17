@@ -109,9 +109,59 @@ const SYSTEM_PROMPT = `你是一个严谨的题库生成助手。用户会给你
 - 数学公式用 LaTeX，如 $x^2$。
 - 只输出纯 JSON 对象。`;
 
+/* 资料来源本身已经是一套题（试卷、练习册、ima 生成的题库）时用的提示词。
+   与 SYSTEM_PROMPT 的根本区别：这里**禁止出题**，只做整理和补答案。 */
+const EXTRACT_PROMPT = `你是题库整理助手。用户给你的资料**已经是一套现成的题目**（可能是试卷、课后练习、或别人生成的题库），你的任务是把它原样整理成结构化 JSON，而不是出题。
+
+【最高原则：只整理，不出题】
+- 原文有几道就整理几道，一道不多、一道不少。绝不自己补题，绝不把一道题拆成两道，也绝不合并。
+- 题干原样保留：只清掉 Markdown 标记（**、#、>、多余空行），不要意译、不要精简、不要改写措辞、不要补全条件。
+- 选项原样保留：保留原来的顺序和内容，统一写成 "A. …" "B. …" 的格式。
+- 保持原文顺序和题号顺序，不要重新排列。
+- 原文的章节标题、题型分组（"一、单项选择题"、"二、判断题"）不要单独当成题目，把分组名写进该题 tags 的第一个元素。
+
+【答案与解析】
+- 原文给了答案（如"答案：B"、括号里的字母、题末答案表）→ 照抄，answerSource 填 "source"。
+- 原文**没给答案** → 你自己判断最可能的正确答案，answer 填字母，answerSource 填 "inferred"，explanation 写一两句依据（引原文条款或原理），方便用户核对。
+- 原文有解析 → 保留原意，不要重写成长篇。
+- 判断题原文写成"（ ）""对/错""√/×"的 → 转成两个选项："A. 正确" "B. 错误"，答案是 A 或 B。
+- 多选题原文标注"多选"或答案有多个字母 → answer 写成字母组合，如 "ABD"，不要拆成单选。
+- 没有选项的简答/名词解释 → type="calculation"，answer 写参考答案要点，不要改写成选择题。
+
+【题型判定】
+- 有 A/B/C/D 选项 → type="choice"。
+- 填空（"____"或"（ ）"里填内容而非字母）→ type="blank"，answer 为填空内容。
+- 简答 / 论述 / 案例分析 / 计算 → type="calculation"，保留原题与完整答案。
+- 所有题目的 origin 一律填 "original"，不要填 "rewritten"。
+
+【输出格式】
+严格输出一个 JSON 对象，不要 Markdown 代码块标记，不要任何解释文字：
+{
+  "title": "题库名称（用原文标题，没有就按内容拟定）",
+  "summary": "一句话说明这份题库的范围",
+  "questions": [
+    {
+      "type": "choice | blank | calculation",
+      "stem": "题干（原样）",
+      "options": ["A. …", "B. …", "C. …", "D. …"],
+      "answer": "B",
+      "answerSource": "source | inferred",
+      "explanation": "解析或答案依据",
+      "tags": ["题型或章节名", "知识点"],
+      "origin": "original"
+    }
+  ]
+}
+
+【严格要求】
+- options 只在 type="choice" 时给。
+- 数学公式用 LaTeX，如 $x^2$。
+- 只输出纯 JSON 对象。`;
+
 const LLM = {
   PRESETS,
   SYSTEM_PROMPT,
+  EXTRACT_PROMPT,
   _proxyAvailable: null,
 
   /** 探测是否运行在桌面版（launcher.pyw 提供 /__proxy 与 /api/llm） */
@@ -316,7 +366,159 @@ ${batch.text}
 按系统提示的要求输出 JSON。`;
   },
 
-  /** 结构化资料 → 题库对象。按章节分批请求，合并去重。 */
+  /** 判断这份资料是不是「已经是一套现成的题」——是的话就不用再让模型出题 */
+  detect(text) {
+    const t = String(text || '');
+    const empty = { mode: 'generate', questions: 0, options: 0, answers: 0, hasAnswers: false };
+    if (t.trim().length < 20) return empty;
+
+    // 题号行：1. / 1、/ 第1题 / （1）
+    let questions = 0;
+    t.split(/\r?\n/).forEach(raw => {
+      const ln = raw.trim().replace(/^[#>*\s]+/, '').replace(/\*+$/, '').trim();
+      if (!ln || ln.length < 6) return;
+      if (/^(?:\d{1,3}|第\s*\d{1,3}\s*[题问])\s*[.、．)）:：]/.test(ln)) questions++;
+      else if (/^[（(]\s*\d{1,3}\s*[）)]\s*\S/.test(ln) && ln.length > 10) questions++;
+    });
+    if (!questions) return Object.assign({}, empty, { options: 0 });
+
+    // 选项：行首 A. 或行内 A. xxx
+    const headOpts = (t.match(/(?:^|\n)\s*[*#>\s]*[A-DＡ-Ｄ]\s*[.、．)）]/g) || []).length;
+    const inlineOpts = (t.match(/(?:^|[^A-Za-z])[A-D]\s*[.、．)）]\s*\S/g) || []).length;
+    const options = Math.max(headOpts, inlineOpts);
+
+    // 答案痕迹："答案：B" / "正确答案" / 行尾（B）
+    const answers = (t.match(/(?:参考)?答案\s*[:：]|正确答案|[（(]\s*[A-D]{1,4}\s*[）)]/g) || []).length;
+
+    const isSet = questions >= 2 && options >= 4 && options >= questions * 1.6;
+    return {
+      mode: isSet ? 'extract' : 'generate',
+      questions,
+      options,
+      answers,
+      hasAnswers: answers >= Math.max(1, Math.ceil(questions / 3))
+    };
+  },
+
+  /** 按题号把现成题目切成若干批（不按章节，因为试卷的题目才是最小单位） */
+  splitByQuestion(text, maxQuestions, maxChars) {
+    maxQuestions = maxQuestions || 10;
+    maxChars = maxChars || 6000;
+    const lines = String(text || '').split(/\r?\n/);
+    const isStem = (ln) => {
+      const t = ln.trim().replace(/^[#>*\s]+/, '').replace(/\*+$/, '').trim();
+      if (!t || t.length < 6) return false;
+      if (/^[A-DＡ-Ｄ]\s*[.、．)）]/.test(t)) return false;   // 选项行
+      return /^(?:\d{1,3}|第\s*\d{1,3}\s*[题问])\s*[.、．)）:：]/.test(t) ||
+             (/^[（(]\s*\d{1,3}\s*[）)]\s*\S/.test(t) && t.length > 10);
+    };
+
+    const marks = [];
+    lines.forEach((ln, i) => { if (isStem(ln)) marks.push(i); });
+    if (marks.length < 2) return [{ title: '', text: String(text || '').trim(), count: 0 }];
+
+    // 第一个题号之前的内容（标题、说明）丢掉，只整理题目本身
+    const blocks = marks.map((start, k) => {
+      const end = k + 1 < marks.length ? marks[k + 1] : lines.length;
+      return { no: k + 1, text: lines.slice(start, end).join('\n').trim() };
+    });
+
+    const batches = [];
+    let cur = null;
+    blocks.forEach(b => {
+      const over = cur && (cur.count >= maxQuestions || (cur.text.length + b.text.length + 2) > maxChars);
+      if (!cur || over) { cur = { text: '', count: 0, nos: [] }; batches.push(cur); }
+      cur.nos.push(b.no);
+      cur.text += (cur.text ? '\n\n' : '') + b.text;
+      cur.count++;
+    });
+
+    return batches.map(b => ({
+      title: b.nos.length > 1
+        ? `第 ${b.nos[0]}–${b.nos[b.nos.length - 1]} 题`
+        : `第 ${b.nos[0]} 题`,
+      text: b.text,
+      count: b.count
+    }));
+  },
+
+  /** 整理模式每次请求的指令 + 原文 */
+  buildExtractText(batch, idx, total) {
+    const batchInfo = total > 1 ? `（第 ${idx + 1} / ${total} 批）` : '';
+    const range = batch.title ? `本次范围：${batch.title}，` : '';
+    return `${batchInfo}下面是资料里现成的题目。
+${range}共 ${batch.count} 道，全部整理进来，一道都不能漏；不要新增题目、不要改写题干与选项、不要合并或拆分。
+
+资料原文：
+"""
+${batch.text}
+"""
+
+按系统提示的要求输出 JSON。`;
+  },
+
+  /** 合并多批结果并按题干去重（保住原顺序） */
+  mergeQuestions(results) {
+    const seen = new Set();
+    const questions = [];
+    results.forEach(r => r.questions.forEach(q => {
+      const key = q.stem.replace(/\s+/g, '').replace(/[，。；、？?！!：:（）()【】"“”'']/g, '').slice(0, 42);
+      if (seen.has(key)) return;
+      seen.add(key);
+      questions.push(q);
+    }));
+    return questions;
+  },
+
+  /** 现成题目：只整理，不出新题 */
+  async extractSet(text, cfg, onProgress) {
+    const MAX_BATCHES = 8;
+    let batches = this.splitByQuestion(text, 10, 6000);
+    const totalQ = batches.reduce((n, b) => n + (b.count || 0), 0);
+    const skipped = Math.max(0, batches.length - MAX_BATCHES);
+    batches = batches.slice(0, MAX_BATCHES);
+
+    const results = [];
+    for (let i = 0; i < batches.length; i++) {
+      const label = batches[i].title || ('第 ' + (i + 1) + ' 段');
+      if (onProgress) {
+        onProgress(batches.length > 1
+          ? `正在整理原题：${label}（${i + 1}/${batches.length}）…`
+          : '正在整理资料里的原题…');
+      }
+      const userText = this.buildExtractText(batches[i], i, batches.length);
+      let raw = await this.chat(cfg, userText, EXTRACT_PROMPT);
+      let parsed;
+      try {
+        parsed = this.parseJSON(raw);
+      } catch (e) {
+        if (onProgress) onProgress(`「${label}」格式有偏差，正在自动修正…`);
+        raw = await this.chat(cfg,
+          '把下面的内容修正为严格合法的 JSON 对象，只输出 JSON，不要任何解释或代码块标记：\n\n' + raw,
+          '你是 JSON 格式修正助手，只输出合法 JSON。');
+        parsed = this.parseJSON(raw);
+      }
+      results.push(this.normalize(parsed));
+    }
+
+    const questions = this.mergeQuestions(results);
+    const inferred = questions.filter(q => q.answerSource === 'inferred').length;
+    const guessed = totalQ && questions.length !== totalQ;
+
+    const title = (results.map(r => r.title).filter(Boolean)[0]) || '未命名题库';
+    const summary = `资料本身是现成题目：整理出 ${questions.length} 道` +
+      (inferred ? `，其中 ${inferred} 道原文没给答案、由模型补答` : '') +
+      (guessed ? `（原文约 ${totalQ} 道，${questions.length > totalQ ? '多出' : '少了'} ${Math.abs(questions.length - totalQ)} 道，建议核对）` : '') +
+      (skipped ? `（资料过长，末尾 ${skipped} 批未处理，建议分批导入）` : '');
+
+    return {
+      title, summary, questions,
+      mode: 'extract', inferred, totalQ,
+      segments: batches.length, batches: batches.length, skipped
+    };
+  },
+
+  /** 结构化资料 → 题库对象。已有现成题目时只整理；否则按章节分批出题。 */
   async structure(text, opts, onProgress) {
     if (typeof opts === 'function') { onProgress = opts; opts = {}; }
     opts = opts || {};
@@ -325,6 +527,12 @@ ${batch.text}
     const cfg = await this.getConfig();
     const err = this.validate(cfg);
     if (err) throw new Error(err);
+
+    // 已有现成题目 → 整理；否则 → 出题
+    const mode = opts.mode === 'extract' || opts.mode === 'generate'
+      ? opts.mode
+      : this.detect(text).mode;
+    if (mode === 'extract') return this.extractSet(text, cfg, onProgress);
 
     let segs = this.splitByChapter(text, 7000);
     if (!segs.length) segs = [{ title: '', text: text.trim() }];
@@ -355,14 +563,7 @@ ${batch.text}
     }
 
     // 合并 + 按题干去重
-    const seen = new Set();
-    const questions = [];
-    results.forEach(r => r.questions.forEach(q => {
-      const key = q.stem.replace(/\s+/g, '').replace(/[，。；、？?！!：:（）()【】"“”'']/g, '').slice(0, 42);
-      if (seen.has(key)) return;
-      seen.add(key);
-      questions.push(q);
-    }));
+    const questions = this.mergeQuestions(results);
 
     const titles = results.map(r => r.title).filter(Boolean);
     const title = titles.length ? titles[0] : '未命名题库';
@@ -373,7 +574,7 @@ ${batch.text}
       (plan.skippedChapters ? `（资料过长，末尾约 ${plan.skippedChapters} 节未处理，建议分批导入）` : '');
 
     return {
-      title, summary, questions,
+      title, summary, questions, mode: 'generate',
       segments: segs.length, batches: batches.length, skipped: plan.skippedChapters
     };
   },
@@ -394,10 +595,10 @@ ${batch.text}
     const warns = [];
     if (q.type !== 'choice') return warns;
     const ans = String(q.answer || '').trim();
-    const letter = (ans.match(/[A-Da-d]/) || [''])[0].toUpperCase();
-    if (!letter) {
+    const letters = (ans.toUpperCase().match(/[A-D]/g) || []);
+    if (!letters.length) {
       warns.push('答案不是 A/B/C/D，没法自动判分');
-    } else if (q.options.length && letter.charCodeAt(0) - 65 >= q.options.length) {
+    } else if (q.options.length && letters.some(l => l.charCodeAt(0) - 65 >= q.options.length)) {
       warns.push('答案字母超出了选项数量');
     }
     // 反向题：题干问"哪项错误"，解析却在说这一项是对的
@@ -429,6 +630,10 @@ ${batch.text}
         tags: Array.isArray(q.tags) ? q.tags.map(String).slice(0, 5) : [],
         origin: q.origin === 'rewritten' ? 'rewritten' : 'original'
       };
+      // 答案来自原文还是模型自己补的（整理模式下用来提示用户核对）
+      if (q.answerSource === 'inferred' || q.answerSource === 'source') {
+        out.answerSource = q.answerSource;
+      }
       const warns = this.audit(out);
       if (warns.length) out._warn = warns.join('；');
       return out;

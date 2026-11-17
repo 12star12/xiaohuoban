@@ -382,6 +382,35 @@ button { cursor: pointer; }
   font-size: 13px; color: var(--ink-2); font-weight: 600;
 }
 .gen-opt select { width: 110px; padding: 7px 10px; }
+
+/* 导入模式：现成题目只整理 / 知识点才出题 */
+.mode-row {
+  display: grid; grid-template-columns: auto 1fr; align-items: start;
+  gap: 2px 8px;
+  background: var(--paper-2); border: 1px solid var(--line);
+  border-radius: 11px; padding: 9px 12px; margin: 12px 0 10px;
+}
+.mode-tag {
+  grid-column: 1; grid-row: 1;
+  font-size: 10.5px; font-weight: 700; line-height: 1.9;
+  padding: 0 9px; border-radius: 99px;
+  background: #fbeee1; color: var(--orange-deep);
+}
+.mode-tag.ok { background: var(--green-soft); color: #5d9b6c; }
+.mode-tag.wait { background: #f2ece4; color: var(--ink-3); }
+.mode-text { grid-column: 2; grid-row: 1; min-width: 0; font-size: 11.5px; color: var(--ink-2); line-height: 1.75; }
+.mode-btn {
+  grid-column: 2; grid-row: 2; justify-self: end;
+  background: transparent; border: none; cursor: pointer;
+  font-size: 11px; line-height: 1.9; color: var(--orange-deep); font-weight: 600;
+  padding: 0; text-decoration: underline dotted; white-space: nowrap;
+}
+.mode-btn:hover { color: var(--orange); }
+.pv-flag {
+  font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 99px;
+  background: var(--paper-2); color: var(--ink-3); margin-left: 4px;
+}
+.pv-flag.warn { background: #fbeee1; color: var(--clay); }
 .model-ok { color: #5d9b6c; font-size: 12.5px; font-weight: 600; }
 .model-bad { color: var(--clay); font-size: 12.5px; }
 .preview-box { margin-top: 18px; }

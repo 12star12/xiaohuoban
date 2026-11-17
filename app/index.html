@@ -117,7 +117,7 @@
     <!-- 导入资料 -->
     <section class="view" id="view-import">
       <header class="page-head">
-        <div><h1>导入资料</h1><p class="page-sub">粘贴或上传你的知识点整理、题目，大模型会把它变成题库。</p></div>
+        <div><h1>导入资料</h1><p class="page-sub">粘贴或上传你的知识点整理、题目。已经是现成题目就直接整理，知识点整理才让模型出题。</p></div>
         <button class="btn" onclick="App.go('library')">← 返回题库</button>
       </header>
       <div class="import-layout">
@@ -140,7 +140,12 @@
           <hr class="divider">
           <div class="panel-title">模型状态</div>
           <div id="modelStatus"></div>
-          <div class="gen-opt">
+          <div class="mode-row" id="modeRow">
+            <span class="mode-tag wait" id="modeTag">待识别</span>
+            <span class="mode-text" id="modeText">粘贴后自动判断：现成题目就直接整理，知识点整理才让模型出题。</span>
+            <button type="button" class="mode-btn" id="modeBtn" onclick="App.toggleImportMode()" style="display:none">切换</button>
+          </div>
+          <div class="gen-opt" id="perChapterRow">
             <label for="perChapter">每章题量</label>
             <select id="perChapter" class="field">
               <option value="3">3 道</option>
@@ -149,7 +154,7 @@
               <option value="10">10 道</option>
             </select>
           </div>
-          <p class="hint-text" style="margin:0 0 12px">资料里的「第X章 / 第X节 / 一、二、」会被当作章节边界，每一章单独出题。</p>
+          <p class="hint-text" id="perChapterHint" style="margin:0 0 12px">资料里的「第X章 / 第X节 / 一、二、」会被当作章节边界，每一章单独出题。</p>
           <button class="btn primary wide" id="genBtn" onclick="App.generate()">生成题库</button>
           <p class="hint-text" id="importHint">生成过程可能需要十几秒，请耐心等待。Key 只保存在本机。</p>
         </div>
