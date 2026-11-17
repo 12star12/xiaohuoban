@@ -1,5 +1,7 @@
 /* 主应用：视图路由、导入生成、刷题流程、统计渲染。 */
 
+const QUIZ_SESSION_KEY = 'hb_quiz_session_v1';
+
 const App = {
   currentBank: null,
   quizQueue: [],
@@ -50,7 +52,7 @@ const App = {
       home: () => this.renderHome(),
       library: () => this.renderLibrary(),
       import: () => { this.renderModelStatus(); this.detectImport(); },
-      practice: () => this.renderPracticeSelect(),
+      practice: () => this.goPractice(),
       history: () => this.renderHistory(),
       wrong: () => this.renderWrong(),
       achievements: () => this.renderAchievements(),
@@ -593,11 +595,105 @@ const App = {
         <div style="margin-top:18px"><button class="btn primary" onclick="App.showImport()">去导入资料</button></div></div>`;
       return;
     }
-    el.innerHTML = `<div class="quiz-select">${banks.map(b => `
+    const s = this.loadQuizSession();
+    const resumeCard = s ? `
+      <div class="resume-card">
+        <div>
+          <div class="resume-title">⏳ 上次还有一套题没做完</div>
+          <div class="resume-meta">${this.esc((s.bank && s.bank.name) || '上次的练习')} · 做到第 ${Math.min(s.index + 1, s.questions.length)} / ${s.questions.length} 题</div>
+        </div>
+        <div class="resume-actions">
+          <button class="btn primary" onclick="App.resumeQuiz()">从这里继续 →</button>
+          <button class="btn" onclick="App.discardQuizSession()">不续了</button>
+        </div>
+      </div>` : '';
+    el.innerHTML = resumeCard + `<div class="quiz-select"${s ? ' style="margin-top:14px"' : ''}>${banks.map(b => `
       <button class="quiz-card" onclick="App.startQuizById('${b.id}')">
         <div class="quiz-card-title">${this.esc(b.name)}</div>
         <div class="hint-text" style="margin-top:4px">${b.count} 道题 · 点击开始</div>
       </button>`).join('')}</div>`;
+  },
+
+  /* ---------- 断点续练：把进度存在本地，重开 App 也能接着做 ---------- */
+  saveQuizSession(indexOverride) {
+    if (!this.currentBank || !this.quizQueue || !this.quizQueue.length) return;
+    try {
+      const s = {
+        bank: Object.assign({}, this.currentBank),
+        questions: this.quizQueue,
+        index: typeof indexOverride === 'number' ? indexOverride : this.quizIndex,
+        answers: (this.quizAnswers || []).map(a => ({
+          qid: a.q && a.q.id, correct: !!a.correct, userAnswer: a.userAnswer
+        })),
+        savedAt: Date.now()
+      };
+      localStorage.setItem(QUIZ_SESSION_KEY, JSON.stringify(s));
+    } catch (e) { /* 隐私模式或空间不足时静默跳过，不影响刷题 */ }
+  },
+
+  loadQuizSession() {
+    try {
+      const s = JSON.parse(localStorage.getItem(QUIZ_SESSION_KEY) || 'null');
+      if (!s || !Array.isArray(s.questions) || !s.questions.length) return null;
+      s.index = Math.max(0, Math.min(Number(s.index) || 0, s.questions.length));
+      s.answers = Array.isArray(s.answers) ? s.answers : [];
+      s.bank = s.bank || { id: '__resume__', name: '上次的练习' };
+      return s;
+    } catch (e) { return null; }
+  },
+
+  clearQuizSession() {
+    try { localStorage.removeItem(QUIZ_SESSION_KEY); } catch (e) {}
+  },
+
+  async goPractice() {
+    // 从侧栏点「开始练习」时，有未做完的进度就直接接上
+    const s = this.loadQuizSession();
+    if (s && await this.applySession(s)) return;
+    this.renderPracticeSelect();
+  },
+
+  async resumeQuiz() {
+    const s = this.loadQuizSession();
+    if (s && await this.applySession(s)) return;
+    this.renderPracticeSelect();
+  },
+
+  discardQuizSession() {
+    this.clearQuizSession();
+    this.currentBank = null;
+    this.quizQueue = [];
+    this.quizIndex = 0;
+    this.quizAnswers = [];
+    this.renderPracticeSelect();
+  },
+
+  async applySession(s) {
+    if (!s || !Array.isArray(s.questions) || !s.questions.length) return false;
+    this.currentBank = s.bank;
+    this.quizQueue = s.questions;
+    this.quizIndex = s.index;
+    this.quizAnswers = (s.answers || []).map(a => ({
+      q: s.questions.find(q => q.id === a.qid) || null,
+      correct: !!a.correct,
+      userAnswer: a.userAnswer
+    }));
+    this.quizStartTs = s.savedAt || Date.now();
+    this.switchView('practice');
+    if (this.quizIndex >= this.quizQueue.length) {
+      this.clearQuizSession();
+      this.renderQuizDone();
+    } else {
+      this.renderQuestion();
+    }
+    return true;
+  },
+
+  /** 题目里的「退出练习」：保留进度，回到题库选择页 */
+  exitQuiz() {
+    this.saveQuizSession();
+    this.switchView('practice');
+    this.renderPracticeSelect();
   },
 
   async startQuizById(bankId) {
@@ -612,6 +708,8 @@ const App = {
     this.quizIndex = 0;
     this.quizAnswers = [];
     this.quizStartTs = Date.now();
+    this.clearQuizSession();
+    this.saveQuizSession();
     // 用 switchView 而非 go：避免 go 触发的异步 renderPracticeSelect 覆盖题目
     this.switchView('practice');
     this.renderQuestion();
@@ -659,7 +757,7 @@ const App = {
           <div class="quiz-progress-txt">第 ${this.quizIndex+1} / ${this.quizQueue.length} 题</div>
           <div class="quiz-top-actions">
             <button class="btn" onclick="App.fixQuestion()" title="答案或解析对不上？点这里改">这题有误</button>
-            <button class="btn" onclick="App.go('practice')">退出练习</button>
+            <button class="btn" onclick="App.exitQuiz()">退出练习</button>
           </div>
         </div>
         <div class="quiz-q-card">
@@ -732,6 +830,8 @@ const App = {
       userAnswer, correct, durationSec: duration
     });
     this.quizAnswers.push({ q, correct, userAnswer });
+    // 答完就记下进度：即使此刻关掉窗口，下次也从下一题接着做
+    this.saveQuizSession(this.quizIndex + 1);
 
     const isRight = correct;
     document.getElementById('feedbackZone').innerHTML = `
@@ -769,6 +869,7 @@ const App = {
         this.quizQueue.splice(this.quizIndex, 1);
         if (!this.quizQueue.length) { this.renderQuizDone(); return; }
         if (this.quizIndex >= this.quizQueue.length) this.quizIndex = this.quizQueue.length - 1;
+        this.saveQuizSession();
         this.renderQuestion();
       } catch (e) {
         alert('删除失败：' + e.message);
@@ -781,6 +882,7 @@ const App = {
     delete copy._warn;
     try {
       await DB.putQuestions([copy]);
+      this.saveQuizSession();
       alert('已修正。之后的判分按新答案来；之前答错的记录还在错题本里，重练一次就会更新。');
     } catch (e) {
       alert('保存失败：' + e.message);
@@ -789,10 +891,12 @@ const App = {
 
   nextQuestion() {
     this.quizIndex++;
+    this.saveQuizSession();
     this.renderQuestion();
   },
 
   renderQuizDone() {
+    this.clearQuizSession();
     const total = this.quizAnswers.length;
     const right = this.quizAnswers.filter(a => a.correct).length;
     const pct = total ? Math.round(right / total * 100) : 0;
@@ -960,6 +1064,8 @@ const App = {
     this.quizIndex = 0;
     this.quizAnswers = [];
     this.quizStartTs = Date.now();
+    this.clearQuizSession();
+    this.saveQuizSession();
     this.switchView('practice');
     this.renderQuestion();
   },
