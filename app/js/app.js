@@ -419,23 +419,63 @@ const App = {
   renderPreview(result) {
     const area = document.getElementById('previewArea');
     const typeLabel = { choice: '选择题', blank: '填空题', calculation: '计算/简答题' };
-    const items = result.questions.map((q, i) => `
-      <div class="preview-q">
+    const suspect = result.questions.filter(q => q._warn).length;
+    const items = result.questions.map((q, i) => {
+      const ansKey = String(q.answer || '').trim().charAt(0).toUpperCase();
+      const opts = (q.options || []).length ? `<div class="pv-opts">${q.options.map(o => {
+        const hit = q.type === 'choice' && String(o).trim().charAt(0).toUpperCase() === ansKey;
+        return `<div class="pv-opt ${hit ? 'hit' : ''}">${this.esc(o)}</div>`;
+      }).join('')}</div>` : '';
+      return `<div class="preview-q">
         <div class="preview-q-type">${i+1}. ${typeLabel[q.type] || q.type}${q.origin === 'rewritten' ? ' · 由开放题改写' : ''}　${(q.tags||[]).map(t=>'<span class="tag">'+this.esc(t)+'</span>').join(' ')}</div>
         <div class="preview-q-stem">${this.esc(q.stem)}</div>
-      </div>`).join('');
+        ${opts}
+        <div class="pv-answer">答案 <b>${this.esc(q.answer)}</b>${q.explanation ? `<span class="pv-exp">${this.esc(q.explanation)}</span>` : ''}</div>
+        ${q._warn ? `<div class="pv-warn">⚠ ${this.esc(q._warn)}</div>` : ''}
+        <div class="pv-actions">
+          <button class="btn" onclick="App.editAnswer(${i})">改答案</button>
+          <button class="btn" onclick="App.dropQuestion(${i})">删掉这题</button>
+        </div>
+      </div>`;
+    }).join('');
     area.innerHTML = `
       <div class="preview-box">
         <div class="preview-head">
           <div>
             <div class="panel-title" style="margin-bottom:2px">预览：${this.esc(result.title)}（共 ${result.questions.length} 题）</div>
             <div class="hint-text" style="margin-top:0">${this.esc(result.summary)}</div>
+            ${suspect ? `<div class="pv-warn" style="margin-top:8px">有 ${suspect} 道题被系统标为「可能有问题」（答案与解析对不上），保存前建议逐题看一眼，或直接改答案 / 删掉。</div>` : ''}
           </div>
           <button class="btn primary" onclick="App.savePreview()">保存到题库</button>
         </div>
         ${items}
       </div>`;
     area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  editAnswer(i) {
+    const q = this._preview && this._preview.questions[i];
+    if (!q) return;
+    const v = prompt('把这题的正确答案改成（选择题填字母）：', String(q.answer || ''));
+    if (v === null || !v.trim()) return;
+    q.answer = v.trim();
+    delete q._warn;
+    const w = LLM.audit(q);
+    if (w.length) q._warn = w.join('；');
+    this.renderPreview(this._preview);
+  },
+
+  dropQuestion(i) {
+    const p = this._preview;
+    if (!p) return;
+    if (!confirm('确定删掉第 ' + (i + 1) + ' 题吗？')) return;
+    p.questions.splice(i, 1);
+    if (!p.questions.length) {
+      this._preview = null;
+      document.getElementById('previewArea').innerHTML = '';
+      return;
+    }
+    this.renderPreview(p);
   },
 
   async savePreview() {
@@ -455,7 +495,11 @@ const App = {
         tags: Array.from(new Set(r.questions.flatMap(q => q.tags || []))),
         createdAt: Date.now()
       });
-      await DB.putQuestions(r.questions.map(q => Object.assign({}, q, { bankId })));
+      await DB.putQuestions(r.questions.map(q => {
+        const copy = Object.assign({}, q, { bankId });
+        delete copy._warn;   // 质检标记不入库
+        return copy;
+      }));
       this._preview = null;
       document.getElementById('importText').value = '';
       document.getElementById('previewArea').innerHTML = '';
@@ -541,7 +585,10 @@ const App = {
       <div class="quiz-stage">
         <div class="quiz-top">
           <div class="quiz-progress-txt">第 ${this.quizIndex+1} / ${this.quizQueue.length} 题</div>
-          <button class="btn" onclick="App.go('practice')">退出练习</button>
+          <div class="quiz-top-actions">
+            <button class="btn" onclick="App.fixQuestion()" title="答案或解析对不上？点这里改">这题有误</button>
+            <button class="btn" onclick="App.go('practice')">退出练习</button>
+          </div>
         </div>
         <div class="quiz-q-card">
           <div class="quiz-q-num">${typeLabel[q.type] || '题目'}　${(q.tags||[]).slice(0,3).map(t=>'<span class="tag">'+this.esc(t)+'</span>').join(' ')}</div>
@@ -593,7 +640,7 @@ const App = {
   async afterAnswer(correct, userAnswer, q) {
     const duration = Math.round((Date.now() - this._qStart) / 1000);
     await Achievements.recordAttempt({
-      questionId: q.id, bankId: this.currentBank.id,
+      questionId: q.id, bankId: q.bankId || this.currentBank.id,
       userAnswer, correct, durationSec: duration
     });
     this.quizAnswers.push({ q, correct, userAnswer });
@@ -614,6 +661,23 @@ const App = {
     if (enc) this.showEncourage(enc);
   },
 
+  /** 题目答案/解析对不上时，就地改掉（写回题库，之后按新答案判分） */
+  async fixQuestion() {
+    const q = this.quizQueue[this.quizIndex];
+    if (!q) return;
+    const v = prompt('这题的正确答案应该是（选择题填字母 A/B/C/D）：', String(q.answer || ''));
+    if (v === null || !v.trim()) return;
+    q.answer = v.trim();
+    const copy = Object.assign({}, q);
+    delete copy._warn;
+    try {
+      await DB.putQuestions([copy]);
+      alert('已修正。之后的判分按新答案来；之前答错的记录还在错题本里，重练一次就会更新。');
+    } catch (e) {
+      alert('保存失败：' + e.message);
+    }
+  },
+
   nextQuestion() {
     this.quizIndex++;
     this.renderQuestion();
@@ -630,7 +694,7 @@ const App = {
         <p class="page-sub" style="margin-bottom:24px">完成 ${total} 题 · 答对 ${right} 题 · 正确率 ${pct}%</p>
         <p class="hint-text" style="margin-bottom:24px">${pct >= 80 ? '这批题你已经很熟了，可以休息一下。' : pct >= 50 ? '大体掌握了，错题可以回头再看。' : '别急，错题已经记进错题本，过两天再来。'}</p>
         <div class="quick-actions" style="justify-content:center">
-          <button class="btn primary" onclick="App.startQuizById('${this.currentBank.id}')">再来一轮</button>
+          <button class="btn primary" onclick="App.retryLastQuiz()">再来一轮</button>
           <button class="btn" onclick="App.go('home')">回到今日</button>
           <button class="btn" onclick="App.go('wrong')">看错题本</button>
         </div>
@@ -688,16 +752,115 @@ const App = {
       el.innerHTML = `<div class="empty"><div class="empty-mark">◇</div><div class="empty-title">错题本是空的</div><div>很好，或者说明你还没开始刷——两种情况都值得高兴。</div></div>`;
       return;
     }
-    el.innerHTML = `<p class="hint-text" style="margin-bottom:14px">共 ${list.length} 道错题。最近一次做对的话，就可以从心里划掉了。</p>` +
-      list.map((item, i) => {
+
+    const banks = await DB.getBanks();
+    const bankMap = {};
+    banks.forEach(b => bankMap[b.id] = b);
+    const isLeft = x => !(x.lastAttempt && x.lastAttempt.correct);
+
+    // 按学科文件夹归类（原题库被删的落到「未分类」）
+    const groups = {};
+    list.forEach(item => {
+      const b = bankMap[item.question.bankId];
+      const folder = (b && b.folder) || '未分类';
+      (groups[folder] = groups[folder] || []).push(item);
+    });
+    const folderNames = Object.keys(groups).sort((a, b) => {
+      if (a === '未分类') return 1;
+      if (b === '未分类') return -1;
+      return a.localeCompare(b, 'zh-CN');
+    });
+
+    const totalLeft = list.filter(isLeft).length;
+    const head = `
+      <div class="wrong-top">
+        <div>
+          <div class="wrong-sum">共 ${list.length} 道错题 · 分布在 ${folderNames.length} 个学科</div>
+          <div class="hint-text">其中 ${totalLeft} 道最近一次仍做错。已经做对的会标「已攻克」，不再进入重练。</div>
+        </div>
+        <button class="btn primary" onclick="App.startWrongQuiz('')" ${totalLeft ? '' : 'disabled'}>全部再来一遍</button>
+      </div>`;
+
+    const body = folderNames.map(folder => {
+      const items = groups[folder];
+      const open = !(this._closedWrongFolders && this._closedWrongFolders.has(folder));
+      const left = items.filter(isLeft).length;
+      const cards = items.map(item => {
         const q = item.question;
-        const solved = item.lastAttempt && item.lastAttempt.correct;
+        const solved = !isLeft(item);
+        const bankName = (bankMap[q.bankId] || {}).name || '未知题库';
         return `<div class="preview-q">
-          <div class="preview-q-type">${i+1}. ${q.type === 'choice' ? '选择题' : '题目'} ${solved ? '· <span style="color:var(--green)">最近已做对</span>' : '· <span style="color:var(--clay)">仍待攻克</span>'}</div>
+          <div class="preview-q-type">${q.type === 'choice' ? '选择题' : '题目'} · ${this.esc(bankName)}${solved
+            ? ' · <span style="color:var(--green)">已攻克</span>'
+            : ' · <span style="color:var(--clay)">仍待攻克</span>'}</div>
           <div class="preview-q-stem">${this.esc(q.stem)}</div>
           <div class="answer-box ok" style="margin-top:10px;padding:10px 14px;font-size:12.5px">正确答案：${this.esc(q.answer)}</div>
         </div>`;
       }).join('');
+      return `
+      <div class="folder-group">
+        <div class="folder-head" onclick="App.toggleWrongFolder('${this.esc(folder)}')">
+          <span class="folder-caret ${open ? '' : 'collapsed'}">▾</span>
+          <span class="folder-name">📁 ${this.esc(folder)}</span>
+          <span class="folder-count">${items.length} 道错题 · ${left} 道待攻克</span>
+          <button class="folder-action" ${left ? '' : 'disabled'} title="${left ? '只刷这个学科的错题' : '这个学科的错题都做对了'}"
+            onclick="event.stopPropagation();App.startWrongQuiz('${this.esc(folder)}')">${left ? '刷这些 ↻' : '都攻克了'}</button>
+        </div>
+        <div class="folder-body" style="display:${open ? 'block' : 'none'}">${cards}</div>
+      </div>`;
+    }).join('');
+
+    el.innerHTML = head + body;
+  },
+
+  toggleWrongFolder(name) {
+    if (!this._closedWrongFolders) this._closedWrongFolders = new Set();
+    if (this._closedWrongFolders.has(name)) this._closedWrongFolders.delete(name);
+    else this._closedWrongFolders.add(name);
+    this.renderWrong();
+  },
+
+  /** 错题重练：只把「最近一次仍做错」的题放进队列，可限定某个学科 */
+  async startWrongQuiz(folderName) {
+    const list = await Achievements.wrongBook();
+    const banks = await DB.getBanks();
+    const bankMap = {};
+    banks.forEach(b => bankMap[b.id] = b);
+
+    const pool = list.filter(item => {
+      if (item.lastAttempt && item.lastAttempt.correct) return false;
+      if (!folderName) return true;
+      const b = bankMap[item.question.bankId];
+      return ((b && b.folder) || '未分类') === folderName;
+    });
+
+    if (!pool.length) {
+      alert(folderName
+        ? `「${folderName}」里的错题都已经做对了，没有待攻克的题。`
+        : '当前没有待攻克的错题，去刷点新题吧。');
+      return;
+    }
+
+    const questions = pool.map(x => x.question).sort(() => Math.random() - 0.5);
+    this.currentBank = {
+      id: '__wrong__',
+      name: folderName ? `错题重练 · ${folderName}` : '错题重练 · 全部',
+      folder: folderName || ''
+    };
+    this.quizQueue = questions;
+    this.quizIndex = 0;
+    this.quizAnswers = [];
+    this.quizStartTs = Date.now();
+    this.switchView('practice');
+    this.renderQuestion();
+  },
+
+  /** 练习结束页的「再来一轮」：错题轮次再练错题，普通轮次重刷本题库 */
+  retryLastQuiz() {
+    if (this.currentBank && this.currentBank.id === '__wrong__') {
+      return this.startWrongQuiz(this.currentBank.folder || '');
+    }
+    return this.startQuizById(this.currentBank.id);
   },
 
   /* ---------- 成就勋章 ---------- */

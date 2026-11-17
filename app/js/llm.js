@@ -79,6 +79,12 @@ const SYSTEM_PROMPT = `你是一个严谨的题库生成助手。用户会给你
 - 四个选项长度接近、表述同样正式，不要靠"明显很离谱"来凑数。
 - 解析写两句：为什么对，其他选项错在哪。不要复述题干。
 
+【反向题（"哪项错误"）必须自洽 —— 最容易出错，务必逐题自查】
+- 题干问"以下哪项是错误的 / 不正确 / 不属于 / 表述有误"时，正确答案必须是那个**确实错**的选项，其余三个必须都是正确表述。
+- 如果你凑不出一个确定是错的选项（四条法条都成立），**就不要出反向题**，把题干改成"以下哪项是正确的"，答案改为那唯一正确的一项。
+- 解析必须与答案同向：答案项要说明"这句话错在哪"（错把什么记成了什么）。**绝不允许**出现"这是……义务之一""不是错误选项""该说法正确"这类与答案自相矛盾的话。
+- 交卷前逐题复查：把 answer 指向的选项原文读一遍，确认它真的回答了题干所问；不一致就改答案或改题干，不要两个都留着。
+
 【输出格式】
 严格输出一个 JSON 对象，不要 Markdown 代码块标记，不要任何解释文字：
 {
@@ -383,6 +389,29 @@ ${batch.text}
   },
 
   /** 规范化模型输出，补齐字段、去重、生成 id */
+  /** 生成后质检：抓明显的答案/解析自相矛盾（模型偶尔把"正确表述"标成错误答案） */
+  audit(q) {
+    const warns = [];
+    if (q.type !== 'choice') return warns;
+    const ans = String(q.answer || '').trim();
+    const letter = (ans.match(/[A-Da-d]/) || [''])[0].toUpperCase();
+    if (!letter) {
+      warns.push('答案不是 A/B/C/D，没法自动判分');
+    } else if (q.options.length && letter.charCodeAt(0) - 65 >= q.options.length) {
+      warns.push('答案字母超出了选项数量');
+    }
+    // 反向题：题干问"哪项错误"，解析却在说这一项是对的
+    const reversed = /(哪|那)[一几]?[项个些]?[^。？?]{0,12}(错误|不正确|不属于|有误|不对)/.test(q.stem)
+      || /(以下|下列)[^。？?]{0,10}(错误|不正确|不属于)/.test(q.stem);
+    if (reversed) {
+      const ex = String(q.explanation || '');
+      if (/不是错误选项|不是错项|属于正确的|说法正确|表述正确|是正确的陈述|是正确的表述/.test(ex)) {
+        warns.push('解析与答案疑似矛盾：题目问「哪项错误」，解析却说这个选项是对的');
+      }
+    }
+    return warns;
+  },
+
   normalize(parsed) {
     const questions = (parsed.questions || []).filter(q => q && q.stem).map((q, i) => {
       const type = ['choice', 'blank', 'calculation'].includes(q.type) ? q.type : 'choice';
@@ -390,7 +419,7 @@ ${batch.text}
       if (type === 'choice' && options.length < 2) {
         options = ['A. ' + (q.answer || ''), 'B. 其他', 'C. 其他', 'D. 其他'];
       }
-      return {
+      const out = {
         id: 'q_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 7),
         type: type,
         stem: String(q.stem),
@@ -400,6 +429,9 @@ ${batch.text}
         tags: Array.isArray(q.tags) ? q.tags.map(String).slice(0, 5) : [],
         origin: q.origin === 'rewritten' ? 'rewritten' : 'original'
       };
+      const warns = this.audit(out);
+      if (warns.length) out._warn = warns.join('；');
+      return out;
     });
     return {
       title: String(parsed.title || '未命名题库').slice(0, 60),
