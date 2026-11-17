@@ -1,6 +1,9 @@
-/* 每日劝学名言库（本地，40 条，中英双语）。
-   按用户要求：暂不逐条考据出处，先上线；标注"待核"的条目可在用户反馈后修订。
-   字段：zh 中文原文 / en 英译 / author 作者 / work 作品 / note 备注 / explain 白话解释 */
+/* 每日寄语库（本地，110 条，中英双语）。
+   来源覆盖：中国古典与近现代、日本、俄国、德国、法国、意大利、西班牙、
+   拉美（哥伦比亚/阿根廷/古巴）、印度、黎巴嫩、波斯、古罗马、韩国、南非、丹麦，以及英美。
+   题材不限于学习：勇气、好奇、时间、失败、自由、生活与自我。
+   按用户要求：暂不逐条考据出处；出处存疑的在 note 里注明"常被归于某某"。
+   字段：zh 中文（原文或中译） / en 英文（英译或原文） / author 作者 / work 出处（外国条目可带 · 国别） / note 备注 / explain 白话解释（旧字段，已不再显示） */
 window.Quotes = [
   {
     zh: "学而时习之，不亦说乎？",
@@ -229,5 +232,365 @@ window.Quotes = [
     en: "Learning may never cease.",
     author: "荀子", work: "《荀子·劝学》", note: "",
     explain: "学习这件事，不能停。"
+  },
+  {
+    zh: "生活就像骑自行车，想保持平衡，就得一直往前。",
+    en: "Life is like riding a bicycle. To keep your balance, you must keep moving.",
+    author: "爱因斯坦", work: "1930 年致儿子爱德华的信", note: ""
+  },
+  {
+    zh: "想象力比知识更重要。",
+    en: "Imagination is more important than knowledge.",
+    author: "爱因斯坦", work: "1929 年接受《周六晚邮报》采访", note: ""
+  },
+  {
+    zh: "重要的是不要停止发问，好奇心自有它存在的理由。",
+    en: "The important thing is not to stop questioning. Curiosity has its own reason for existing.",
+    author: "爱因斯坦", work: "", note: ""
+  },
+  {
+    zh: "事情在做成之前，看起来总是不可能的。",
+    en: "It always seems impossible until it's done.",
+    author: "曼德拉", work: "", note: ""
+  },
+  {
+    zh: "我明白，勇气不是没有恐惧，而是胜过恐惧。",
+    en: "I learned that courage was not the absence of fear, but the triumph over it.",
+    author: "曼德拉", work: "《漫漫自由路》", note: ""
+  },
+  {
+    zh: "我们唯一需要恐惧的，是恐惧本身。",
+    en: "The only thing we have to fear is fear itself.",
+    author: "罗斯福", work: "1933 年首任就职演说", note: ""
+  },
+  {
+    zh: "阻碍行动的东西反而推动行动。挡在路上的，就成了路。",
+    en: "The impediment to action advances action. What stands in the way becomes the way.",
+    author: "马可·奥勒留", work: "《沉思录》", note: ""
+  },
+  {
+    zh: "你能掌控的是自己的心，而不是外界的事。明白这一点，你就会找到力量。",
+    en: "You have power over your mind — not outside events. Realize this, and you will find strength.",
+    author: "马可·奥勒留", work: "《沉思录》", note: ""
+  },
+  {
+    zh: "我们受苦，多半是在想象里，而不是在现实中。",
+    en: "We suffer more often in imagination than in reality.",
+    author: "塞内加", work: "《致卢西利乌斯书信》", note: ""
+  },
+  {
+    zh: "在隆冬，我终于知道，我身上有一个不可战胜的夏天。",
+    en: "In the depth of winter, I finally learned that within me there lay an invincible summer.",
+    author: "加缪", work: "《夏天集》", note: ""
+  },
+  {
+    zh: "向上攀登的挣扎本身，就足以填满一个人的心。要想象西西弗是幸福的。",
+    en: "The struggle itself toward the heights is enough to fill a man's heart. One must imagine Sisyphus happy.",
+    author: "加缪", work: "《西西弗神话》", note: ""
+  },
+  {
+    zh: "我们都在阴沟里，但仍有人仰望星空。",
+    en: "We are all in the gutter, but some of us are looking at the stars.",
+    author: "王尔德", work: "《温德米尔夫人的扇子》", note: ""
+  },
+  {
+    zh: "最好的出路，永远是穿过去。",
+    en: "The best way out is always through.",
+    author: "弗罗斯特", work: "《仆人的仆人》", note: ""
+  },
+  {
+    zh: "告诉我，你打算拿这唯一而珍贵的生命做什么？",
+    en: "Tell me, what is it you plan to do with your one wild and precious life?",
+    author: "玛丽·奥利弗", work: "《夏天》", note: ""
+  },
+  {
+    zh: "希望是长着羽毛的东西，栖息在灵魂里。",
+    en: "Hope is the thing with feathers that perches in the soul.",
+    author: "狄金森", work: "《希望是长着羽毛的东西》", note: ""
+  },
+  {
+    zh: "我自相矛盾吗？那就自相矛盾吧。我辽阔广大，我包容众多。",
+    en: "Do I contradict myself? Very well then I contradict myself. I am large, I contain multitudes.",
+    author: "惠特曼", work: "《自我之歌》", note: ""
+  },
+  {
+    zh: "我不怕风暴，因为我正在学着驾驶自己的船。",
+    en: "I am not afraid of storms, for I am learning how to sail my ship.",
+    author: "奥尔科特", work: "《小妇人》", note: ""
+  },
+  {
+    zh: "如果说我看得更远，那是因为站在巨人的肩膀上。",
+    en: "If I have seen further, it is by standing on the shoulders of giants.",
+    author: "牛顿", work: "1675 年致胡克的信", note: ""
+  },
+  {
+    zh: "生活中没有什么可怕的东西，只有需要理解的东西。",
+    en: "Nothing in life is to be feared, it is only to be understood.",
+    author: "居里夫人", work: "", note: ""
+  },
+  {
+    zh: "生活对我们任何人都不容易。但那又怎样？我们必须有恒心。",
+    en: "Life is not easy for any of us. But what of that? We must have perseverance.",
+    author: "居里夫人", work: "", note: ""
+  },
+  {
+    zh: "在某处，有某种不可思议的东西正等着被认识。",
+    en: "Somewhere, something incredible is waiting to be known.",
+    author: "卡尔·萨根", work: "", note: ""
+  },
+  {
+    zh: "记得抬头看星星，别老盯着脚下。",
+    en: "Remember to look up at the stars and not down at your feet.",
+    author: "霍金", work: "", note: ""
+  },
+  {
+    zh: "保持求知若渴，保持虚心若愚。",
+    en: "Stay hungry, stay foolish.",
+    author: "乔布斯", work: "2005 年斯坦福毕业典礼演讲", note: ""
+  },
+  {
+    zh: "做出伟大工作的唯一方法，是热爱你所做的事。",
+    en: "The only way to do great work is to love what you do.",
+    author: "乔布斯", work: "2005 年斯坦福毕业典礼演讲", note: ""
+  },
+  {
+    zh: "无论你觉得能行，还是觉得不行，你都是对的。",
+    en: "Whether you think you can, or you think you can't — you're right.",
+    author: "亨利·福特", work: "", note: ""
+  },
+  {
+    zh: "我们不是因为变老才停止玩耍，而是因为停止玩耍才变老。",
+    en: "We don't stop playing because we grow old; we grow old because we stop playing.",
+    author: "萧伯纳", work: "", note: ""
+  },
+  {
+    zh: "我们重复做的事造就了我们。所以卓越不是一个动作，而是一种习惯。",
+    en: "We are what we repeatedly do. Excellence, then, is not an act, but a habit.",
+    author: "威尔·杜兰特", work: "《哲学的故事》", note: "常被归于亚里士多德"
+  },
+  {
+    zh: "勇气是对恐惧的抵抗、对恐惧的掌控，而不是没有恐惧。",
+    en: "Courage is resistance to fear, mastery of fear — not absence of fear.",
+    author: "马克·吐温", work: "《傻瓜威尔逊》", note: ""
+  },
+  {
+    zh: "船停在港湾里最安全，但那不是造船的目的。",
+    en: "A ship in harbor is safe, but that is not what ships are built for.",
+    author: "约翰·谢德", work: "", note: ""
+  },
+  {
+    zh: "人人都想改变世界，却没人想改变自己。",
+    en: "Everyone thinks of changing the world, but no one thinks of changing himself.",
+    author: "托尔斯泰", work: "", note: ""
+  },
+  {
+    zh: "并非所有游荡的人都迷了路。",
+    en: "Not all those who wander are lost.",
+    author: "托尔金", work: "《魔戒》", note: ""
+  },
+  {
+    zh: "不是所有爱读书的人都能成为领导者，但所有领导者都爱读书。",
+    en: "Not all readers are leaders, but all leaders are readers.",
+    author: "杜鲁门", work: "", note: ""
+  },
+  {
+    zh: "你能想象的一切都是真实的。",
+    en: "Everything you can imagine is real.",
+    author: "毕加索", work: "", note: ""
+  },
+  {
+    zh: "欲变世界，先变自己。",
+    en: "Be the change that you wish to see in the world.",
+    author: "甘地", work: "", note: "常被归于甘地"
+  },
+  {
+    zh: "我没有失败，我只是找到了一万种行不通的办法。",
+    en: "I have not failed. I've just found 10,000 ways that won't work.",
+    author: "爱迪生", work: "", note: "常被归于爱迪生"
+  },
+  {
+    zh: "跌倒七次，第八次站起来。",
+    en: "Fall seven times, stand up eight.",
+    author: "日本谚语", work: "", note: ""
+  },
+  {
+    zh: "竹杖芒鞋轻胜马，谁怕？一蓑烟雨任平生。",
+    en: "A bamboo staff and straw sandals are lighter than a horse. Who is afraid? In a straw cloak, through mist and rain, I will live out my life.",
+    author: "苏轼", work: "《定风波》", note: ""
+  },
+  {
+    zh: "采菊东篱下，悠然见南山。",
+    en: "Picking chrysanthemums by the eastern fence, I look up and see the southern hills, at ease.",
+    author: "陶渊明", work: "《饮酒·其五》", note: ""
+  },
+  {
+    zh: "行到水穷处，坐看云起时。",
+    en: "When the water ends, I sit and watch the clouds rise.",
+    author: "王维", work: "《终南别业》", note: ""
+  },
+  {
+    zh: "山重水复疑无路，柳暗花明又一村。",
+    en: "Mountains fold and waters wind until you think the road has ended; then willows shade and flowers brighten, and another village appears.",
+    author: "陆游", work: "《游山西村》", note: ""
+  },
+  {
+    zh: "众里寻他千百度，蓦然回首，那人却在，灯火阑珊处。",
+    en: "A thousand times I searched for her in the crowd; turning back suddenly, there she was, where the lantern light was dim.",
+    author: "辛弃疾", work: "《青玉案·元夕》", note: ""
+  },
+  {
+    zh: "为天地立心，为生民立命，为往圣继绝学，为万世开太平。",
+    en: "To set a heart for heaven and earth, a purpose for the people, to carry on the lost learning of past sages, and to open peace for all ages.",
+    author: "张载", work: "横渠四句", note: ""
+  },
+  {
+    zh: "海纳百川，有容乃大；壁立千仞，无欲则刚。",
+    en: "The sea admits a hundred rivers; it is great because it holds them all. A cliff stands a thousand fathoms; it is firm because it wants nothing.",
+    author: "林则徐", work: "", note: ""
+  },
+  {
+    zh: "知是行之始，行是知之成。",
+    en: "Knowing is the beginning of acting; acting is the completion of knowing.",
+    author: "王阳明", work: "《传习录》", note: ""
+  },
+  {
+    zh: "愿中国青年都摆脱冷气，只是向上走。",
+    en: "May the youth of China shake off the cold air and simply walk upward.",
+    author: "鲁迅", work: "《热风》", note: ""
+  },
+  {
+    zh: "富贵不能淫，贫贱不能移，威武不能屈。",
+    en: "Neither wealth nor rank can corrupt him, neither poverty nor low station can move him, neither power nor force can bend him.",
+    author: "孟子", work: "《孟子·滕文公下》", note: ""
+  },
+  {
+    zh: "不以物喜，不以己悲。",
+    en: "Not gladdened by things outside, not grieved by what happens to oneself.",
+    author: "范仲淹", work: "《岳阳楼记》", note: ""
+  },
+  {
+    zh: "沉舟侧畔千帆过，病树前头万木春。",
+    en: "Beside the sunken boat a thousand sails pass by; before the withered tree ten thousand trees are in spring.",
+    author: "刘禹锡", work: "《酬乐天扬州初逢席上见赠》", note: ""
+  },
+  {
+    zh: "老骥伏枥，志在千里。",
+    en: "An old steed stands in the stable, still dreaming of a thousand miles.",
+    author: "曹操", work: "《龟虽寿》", note: ""
+  },
+  {
+    zh: "何须浅碧深红色，自是花中第一流。",
+    en: "Why need pale green or deep red? It is already the finest of flowers.",
+    author: "李清照", work: "《鹧鸪天·桂花》", note: ""
+  },
+  {
+    zh: "天地与我并生，而万物与我为一。",
+    en: "Heaven and earth were born together with me, and the ten thousand things are one with me.",
+    author: "庄子", work: "《齐物论》", note: ""
+  },
+  {
+    zh: "过于理智会与人起冲突，过于重情又会被牵着走。",
+    en: "Act by reason alone and you grate on others; drift with feeling alone and you are swept away.",
+    author: "夏目漱石", work: "《草枕》· 日本", note: ""
+  },
+  {
+    zh: "古池呀，青蛙跳进去，水的声音。",
+    en: "The old pond — a frog jumps in, the sound of water.",
+    author: "松尾芭蕉", work: "俳句 · 日本", note: ""
+  },
+  {
+    zh: "美将拯救世界。",
+    en: "Beauty will save the world.",
+    author: "陀思妥耶夫斯基", work: "《白痴》· 俄国", note: ""
+  },
+  {
+    zh: "人身上一切都应当是美的：面貌、衣裳、心灵、思想。",
+    en: "Everything in a person should be beautiful: the face, the clothes, the soul, the thoughts.",
+    author: "契诃夫", work: "《万尼亚舅舅》· 俄国", note: ""
+  },
+  {
+    zh: "凡不能毁灭我的，使我更强大。",
+    en: "What does not kill me makes me stronger.",
+    author: "尼采", work: "《偶像的黄昏》· 德国", note: ""
+  },
+  {
+    zh: "凡自强不息者，终能得救。",
+    en: "Whoever strives with all his might — him we can redeem.",
+    author: "歌德", work: "《浮士德》· 德国", note: ""
+  },
+  {
+    zh: "心有其理，理性所不知。",
+    en: "The heart has its reasons, of which reason knows nothing.",
+    author: "帕斯卡", work: "《思想录》· 法国", note: ""
+  },
+  {
+    zh: "世上只有一种英雄主义：看清生活的真相之后，仍然爱它。",
+    en: "There is only one heroism in the world: to see the world as it is, and to love it.",
+    author: "罗曼·罗兰", work: "《米开朗基罗传》· 法国", note: ""
+  },
+  {
+    zh: "本质的东西，眼睛是看不见的。",
+    en: "What is essential is invisible to the eye.",
+    author: "圣埃克苏佩里", work: "《小王子》· 法国", note: ""
+  },
+  {
+    zh: "于是我们走出那里，重见满天繁星。",
+    en: "And then we came out, and saw again the stars.",
+    author: "但丁", work: "《神曲》· 意大利", note: ""
+  },
+  {
+    zh: "自由是上天赐给人类最珍贵的礼物之一。",
+    en: "Freedom is one of the most precious gifts heaven has given to men.",
+    author: "塞万提斯", work: "《堂吉诃德》· 西班牙", note: ""
+  },
+  {
+    zh: "生活不是你活过的日子，而是你记住的日子。",
+    en: "Life is not what one lived, but what one remembers.",
+    author: "马尔克斯", work: "《百年孤独》· 哥伦比亚", note: ""
+  },
+  {
+    zh: "任何命运，无论多长多复杂，其实都只落在一个瞬间：人彻底明白自己是谁的那一刻。",
+    en: "Any life, however long and complicated, is really summed up in a single moment: the moment a man knows forever who he is.",
+    author: "博尔赫斯", work: "《阿莱夫》· 阿根廷", note: ""
+  },
+  {
+    zh: "分裂一个原子，比打破一个偏见容易。",
+    en: "It is easier to split an atom than a prejudice.",
+    author: "何塞·马蒂", work: "古巴", note: ""
+  },
+  {
+    zh: "如果你因错过太阳而流泪，那么你也将错过群星。",
+    en: "If you shed tears when you miss the sun, you also miss the stars.",
+    author: "泰戈尔", work: "《飞鸟集》· 印度", note: ""
+  },
+  {
+    zh: "工作是爱变得可见。",
+    en: "Work is love made visible.",
+    author: "纪伯伦", work: "《先知》· 黎巴嫩", note: ""
+  },
+  {
+    zh: "你生而有翼，为何宁愿一生爬行？",
+    en: "You were born with wings. Why prefer to crawl through life?",
+    author: "鲁米", work: "波斯", note: "常被归于鲁米"
+  },
+  {
+    zh: "他们能，因为他们相信自己能。",
+    en: "They can because they think they can.",
+    author: "维吉尔", work: "《埃涅阿斯纪》· 古罗马", note: ""
+  },
+  {
+    zh: "直到死的那天，仰望天空，愿没有一丝羞愧。",
+    en: "Until the day I die, let me look up at the sky and be free of even a speck of shame.",
+    author: "尹东柱", work: "《序诗》· 韩国", note: ""
+  },
+  {
+    zh: "生活只能倒着理解，却必须正着过。",
+    en: "Life can only be understood backwards; but it must be lived forwards.",
+    author: "克尔凯郭尔", work: "丹麦", note: ""
+  },
+  {
+    zh: "在你所在的地方，做那一点点好事。",
+    en: "Do your little bit of good where you are.",
+    author: "图图大主教", work: "南非", note: ""
   }
 ];

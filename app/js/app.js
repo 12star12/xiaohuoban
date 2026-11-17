@@ -155,13 +155,13 @@ const App = {
 
   async renderDailyQuote() {
     const q = await Achievements.dailyQuote();
-    document.getElementById('topQuoteMain').textContent = `“${q.zh}”—— ${q.author} ${q.work}`;
     document.getElementById('quoteCard').innerHTML = `
       <span class="tq-leaf">🍂</span>
       <button class="tq-refresh" onclick="App.refreshQuote()" title="换一句">换一句 ↻</button>
       <div class="tq-label">今日寄语</div>
-      <div class="tq-zh">${q.zh}</div>
-      <div class="tq-src">—— ${q.author}　${q.work}${q.note ? '　(' + q.note + ')' : ''}</div>
+      <div class="tq-zh">${this.esc(q.zh)}</div>
+      ${q.en ? `<div class="tq-en">${this.esc(q.en)}</div>` : ''}
+      <div class="tq-src">—— ${this.esc(q.author)}${q.work ? '　' + this.esc(q.work) : ''}${q.note ? '　(' + this.esc(q.note) + ')' : ''}</div>
     `;
   },
 
