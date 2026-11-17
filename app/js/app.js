@@ -163,7 +163,6 @@ const App = {
       <div class="tq-zh">${q.zh}</div>
       <div class="tq-src">—— ${q.author}　${q.work}${q.note ? '　(' + q.note + ')' : ''}</div>
     `;
-    document.getElementById('quoteExplain').textContent = q.explain || '慢慢读，读出自己的节奏就好。';
   },
 
   async refreshQuote() {
