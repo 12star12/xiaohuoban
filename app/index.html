@@ -133,6 +133,11 @@
           <p class="hint-text" style="margin-top:6px">支持 PDF、Word（.docx）、TXT、Markdown、JSON；PDF 直接提取文字，扫描版图片 PDF 需先用 OCR。</p>
         </div>
         <div class="panel import-side">
+          <div class="panel-title">归入学科</div>
+          <input type="text" id="importFolder" class="field" placeholder="例如：高等数学、计算机网络" maxlength="30">
+          <div class="folder-quick" id="folderQuick"></div>
+          <p class="hint-text" style="margin-top:6px">同一学科的题库会放进同一个文件夹，留空则归入「未分类」。</p>
+          <hr class="divider">
           <div class="panel-title">模型状态</div>
           <div id="modelStatus"></div>
           <div class="gen-opt">
@@ -222,6 +227,7 @@
           <div class="panel-title">数据管理</div>
           <p class="hint-text">所有数据保存在本机浏览器中。清除后无法恢复。</p>
           <button class="btn danger" onclick="App.clearData()">清除全部数据</button>
+          <button class="btn" id="btnExitApp" style="display:none;margin-top:10px" onclick="App.exitDesktop()">退出应用</button>
         </div>
       </div>
     </section>

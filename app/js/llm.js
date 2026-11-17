@@ -15,28 +15,28 @@ const PRESETS = {
     browserOK: true
   },
   glm: {
-    name: '智谱 GLM（可能受跨域限制）',
+    name: '智谱 GLM（免费 · 桌面版可用）',
     base: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
     model: 'glm-4-flash',
     keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
     browserOK: false
   },
   deepseek: {
-    name: 'DeepSeek（可能受跨域限制）',
+    name: 'DeepSeek（便宜 · 桌面版可用）',
     base: 'https://api.deepseek.com/v1/chat/completions',
     model: 'deepseek-chat',
     keyUrl: 'https://platform.deepseek.com/api_keys',
     browserOK: false
   },
   qwen: {
-    name: '通义千问（可能受跨域限制）',
+    name: '通义千问（桌面版可用）',
     base: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
     model: 'qwen-plus',
     keyUrl: 'https://help.aliyun.com/zh/dashscope/developer-reference/api-key-settings',
     browserOK: false
   },
   kimi: {
-    name: 'Kimi（可能受跨域限制）',
+    name: 'Kimi（桌面版可用）',
     base: 'https://api.moonshot.cn/v1/chat/completions',
     model: 'moonshot-v1-8k',
     keyUrl: 'https://platform.moonshot.cn/console/api-keys',
@@ -106,6 +106,19 @@ const SYSTEM_PROMPT = `你是一个严谨的题库生成助手。用户会给你
 const LLM = {
   PRESETS,
   SYSTEM_PROMPT,
+  _proxyAvailable: null,
+
+  /** 探测是否运行在桌面版（launcher.pyw 提供 /__proxy 与 /api/llm） */
+  async hasProxy() {
+    if (this._proxyAvailable !== null) return this._proxyAvailable;
+    try {
+      const r = await fetch('/__proxy', { cache: 'no-store' });
+      this._proxyAvailable = r.ok && (await r.text()).includes('proxy-ok');
+    } catch (e) {
+      this._proxyAvailable = false;
+    }
+    return this._proxyAvailable;
+  },
 
   /** 读取当前模型配置 */
   async getConfig() {
@@ -141,27 +154,40 @@ const LLM = {
     const endpoint = cfg.preset === 'custom' ? cfg.base : p.base;
     const model = cfg.preset === 'custom' ? cfg.model : p.model;
 
+    const payload = {
+      model: model,
+      messages: [
+        { role: 'system', content: systemPrompt || SYSTEM_PROMPT },
+        { role: 'user', content: userText }
+      ],
+      temperature: 0.2,
+      max_tokens: 8192
+    };
+
+    // 桌面版：交给本地服务转发，绕开浏览器跨域限制，国产模型也能用
+    const useProxy = await this.hasProxy();
+    const targetUrl = useProxy ? '/api/llm' : endpoint;
+    const fetchOpts = useProxy ? {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint, apiKey: cfg.apiKey, payload })
+    } : {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + cfg.apiKey
+      },
+      body: JSON.stringify(payload)
+    };
+
     let resp;
     try {
-      resp = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + cfg.apiKey
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: 'system', content: systemPrompt || SYSTEM_PROMPT },
-            { role: 'user', content: userText }
-          ],
-          temperature: 0.2,
-          max_tokens: 8192
-        })
-      });
+      resp = await fetch(targetUrl, fetchOpts);
     } catch (e) {
       // fetch 抛错通常是网络不通或浏览器跨域（CORS）被拒
-      throw new Error('无法连接到该服务商：可能是网络问题或浏览器跨域限制。建议到「设置」换一家服务商试试（如 DeepSeek），或检查网络后重试。');
+      throw new Error(useProxy
+        ? '本地转发失败：可能是网络中断，或大模型服务商拒绝了这个 Key。请检查网络后重试，或到「设置」确认 Key 有效。'
+        : '无法连接到该服务商：浏览器跨域限制（网页版直连会被拦）。桌面版不受此限制；网页版请到「设置」改用 OpenRouter。');
     }
 
     if (!resp.ok) {

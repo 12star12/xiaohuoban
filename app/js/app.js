@@ -15,6 +15,11 @@ const App = {
     this.bindHistory();
     await this.renderSettings();
     await this.renderHome();
+    // 桌面模式：显示「退出应用」按钮
+    if (new URLSearchParams(location.search).get('desktop') === '1') {
+      const btn = document.getElementById('btnExitApp');
+      if (btn) btn.style.display = 'inline-flex';
+    }
     // 定时刷新今日统计（每 20 秒，仅在首页）
     setInterval(() => {
       if (this.currentView === 'home') this.renderHome();
@@ -185,21 +190,84 @@ const App = {
       return;
     }
     banks.sort((a, b) => b.createdAt - a.createdAt);
-    el.innerHTML = banks.map(b => {
-      const tags = (b.tags || []).slice(0, 6).map(t => `<span class="tag">${this.esc(t)}</span>`).join('');
+
+    // 按学科文件夹分组（没设 folder 的旧题库归入「未分类」）
+    const groups = {};
+    banks.forEach(b => {
+      const folder = b.folder || '未分类';
+      (groups[folder] = groups[folder] || []).push(b);
+    });
+    const folderNames = Object.keys(groups).sort((a, b) => {
+      if (a === '未分类') return 1;
+      if (b === '未分类') return -1;
+      return a.localeCompare(b, 'zh-CN');
+    });
+
+    el.innerHTML = folderNames.map(folder => {
+      const items = groups[folder];
+      const open = !(this._closedFolders && this._closedFolders.has(folder));
+      const qCount = items.reduce((n, b) => n + (b.count || 0), 0);
+      const cards = items.map(b => {
+        const tags = (b.tags || []).slice(0, 6).map(t => `<span class="tag">${this.esc(t)}</span>`).join('');
+        return `
+        <div class="bank-item">
+          <div>
+            <div class="bank-title">${this.esc(b.name)}</div>
+            <div class="bank-meta">${b.count} 道题 · ${new Date(b.createdAt).toLocaleDateString('zh-CN')}${b.summary ? ' · ' + this.esc(b.summary) : ''}</div>
+            <div class="bank-tags">${tags}</div>
+          </div>
+          <div class="bank-actions">
+            <button class="btn primary" onclick="App.startQuizById('${b.id}')">开始刷题</button>
+            <button class="btn" onclick="App.renameBankFolder('${b.id}')">移动</button>
+            <button class="btn" onclick="App.deleteBank('${b.id}')">删除</button>
+          </div>
+        </div>`;
+      }).join('');
       return `
-      <div class="bank-item">
-        <div>
-          <div class="bank-title">${this.esc(b.name)}</div>
-          <div class="bank-meta">${b.count} 道题 · ${new Date(b.createdAt).toLocaleDateString('zh-CN')}${b.summary ? ' · ' + this.esc(b.summary) : ''}</div>
-          <div class="bank-tags">${tags}</div>
+      <div class="folder-group">
+        <div class="folder-head" onclick="App.toggleFolder('${this.esc(folder)}')">
+          <span class="folder-caret ${open ? '' : 'collapsed'}">▾</span>
+          <span class="folder-name">📁 ${this.esc(folder)}</span>
+          <span class="folder-count">${items.length} 套题库 · ${qCount} 题</span>
+          ${folder !== '未分类' ? `<button class="folder-rename" title="重命名文件夹" onclick="event.stopPropagation();App.renameFolder('${this.esc(folder)}')">✎</button>` : ''}
         </div>
-        <div class="bank-actions">
-          <button class="btn primary" onclick="App.startQuizById('${b.id}')">开始刷题</button>
-          <button class="btn" onclick="App.deleteBank('${b.id}')">删除</button>
-        </div>
+        <div class="folder-body" style="display:${open ? 'block' : 'none'}">${cards}</div>
       </div>`;
     }).join('');
+  },
+
+  toggleFolder(name) {
+    if (!this._closedFolders) this._closedFolders = new Set();
+    if (this._closedFolders.has(name)) this._closedFolders.delete(name);
+    else this._closedFolders.add(name);
+    this.renderLibrary();
+  },
+
+  async renameFolder(oldName) {
+    const name = prompt('把文件夹「' + oldName + '」重命名为：', oldName);
+    if (!name || !name.trim() || name.trim() === oldName) return;
+    const banks = await DB.getBanks();
+    for (const b of banks) {
+      if ((b.folder || '未分类') === oldName) {
+        b.folder = name.trim();
+        await DB.putBank(b);
+      }
+    }
+    this.renderLibrary();
+  },
+
+  async renameBankFolder(bankId) {
+    const banks = await DB.getBanks();
+    const bank = banks.find(b => b.id === bankId);
+    if (!bank) return;
+    const folders = Array.from(new Set(banks.map(b => b.folder || '未分类')))
+      .filter(f => f !== (bank.folder || '未分类'));
+    const choice = prompt('移动题库「' + bank.name + '」到哪个学科？\n可直接输入新学科名' +
+      (folders.length ? '，或选已有：' + folders.join('、') : ''), '');
+    if (!choice || !choice.trim()) return;
+    bank.folder = choice.trim();
+    await DB.putBank(bank);
+    await this.renderLibrary();
   },
 
   async deleteBank(id) {
@@ -211,7 +279,26 @@ const App = {
   /* ---------- 导入与生成 ---------- */
   showImport() { this.go('import'); },
 
+  /** 学科快捷标签：已有题库的学科 + 常用预设 */
+  async renderFolderQuick() {
+    const el = document.getElementById('folderQuick');
+    if (!el) return;
+    const banks = await DB.getBanks();
+    const used = Array.from(new Set(banks.map(b => b.folder).filter(Boolean)));
+    const presets = ['高等数学', '线性代数', '概率论', '计算机网络', '操作系统', '英语', '专业课'];
+    const list = Array.from(new Set([...used, ...presets])).slice(0, 12);
+    el.innerHTML = list.map(name =>
+      `<button type="button" class="folder-chip" onclick="App.pickFolder('${this.esc(name)}')">${this.esc(name)}</button>`
+    ).join('');
+  },
+
+  pickFolder(name) {
+    const el = document.getElementById('importFolder');
+    if (el) el.value = name;
+  },
+
   bindImport() {
+    this.renderFolderQuick();
     const ta = document.getElementById('importText');
     ta.addEventListener('input', () => {
       document.getElementById('charCount').textContent = ta.value.length + ' 字';
@@ -286,13 +373,17 @@ const App = {
     const err = LLM.validate(cfg);
     const p = LLM.PRESETS[cfg.preset] || LLM.PRESETS.custom;
     const el = document.getElementById('modelStatus');
+    const isDesktop = await LLM.hasProxy();
     if (err) {
+      const tip = isDesktop
+        ? '先到 <a href="#" onclick="App.go(\'settings\')">设置</a> 填好 API Key。桌面版经本地转发，国产模型（智谱 GLM、DeepSeek 等）都能用。'
+        : '先到 <a href="#" onclick="App.go(\'settings\')">设置</a> 填好 API Key。网页版建议用 OpenRouter（支持浏览器直连）。';
       el.innerHTML = `<div class="model-bad">⚠ ${this.esc(err)}</div>
-        <p class="hint-text">先到 <a href="#" onclick="App.go('settings')">设置</a> 填好 API Key。推荐 OpenRouter（有免费模型、支持网页直连）。</p>`;
+        <p class="hint-text">${tip}</p>`;
       document.getElementById('genBtn').disabled = false;
     } else {
       el.innerHTML = `<div class="model-ok">✓ 已就绪：${this.esc(p.name)}</div>
-        <p class="hint-text">Key 仅保存在本机浏览器。</p>`;
+        <p class="hint-text">Key 仅保存在本机${isDesktop ? '，经本地转发调用' : '浏览器'}。</p>`;
     }
   },
 
@@ -353,9 +444,12 @@ const App = {
     this.showLoading('正在保存…');
     try {
       const bankId = 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      const folderEl = document.getElementById('importFolder');
+      const folder = (folderEl && folderEl.value.trim()) || '未分类';
       await DB.putBank({
         id: bankId,
         name: r.title,
+        folder: folder,
         summary: r.summary,
         count: r.questions.length,
         tags: Array.from(new Set(r.questions.flatMap(q => q.tags || []))),
@@ -733,6 +827,12 @@ const App = {
     await DB.clearAll();
     alert('已清空全部数据。');
     this.go('home');
+  },
+
+  async exitDesktop() {
+    if (!confirm('确定退出应用吗？学习数据已自动保存，下次打开可继续。')) return;
+    try { await fetch('/__quit'); } catch (e) { /* 已退出则忽略 */ }
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#8a6d52;background:#fdf7ee"><div style="text-align:center"><div style="font-size:44px">🌙</div><h2>已退出，可以关闭窗口了</h2><p style="opacity:.7">下次双击桌面图标即可继续学习</p></div></div>';
   },
 
   /* ---------- 鼓励弹窗 ---------- */
