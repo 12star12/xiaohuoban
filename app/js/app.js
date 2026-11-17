@@ -302,16 +302,21 @@ const App = {
     if (text.length < 20) { alert('内容太少了，至少粘贴 20 个字以上'); return; }
 
     const btn = document.getElementById('genBtn');
+    const sel = document.getElementById('perChapter');
+    const perChapter = sel ? (parseInt(sel.value, 10) || 5) : 5;
     btn.disabled = true;
     this.showLoading('正在阅读资料并出题…');
     try {
-      const result = await LLM.structure(text, (msg) => this.setLoadingText(msg));
+      const result = await LLM.structure(text, { perChapter }, (msg) => this.setLoadingText(msg));
       if (!result.questions.length) {
         alert('模型没有从资料中提取到题目。试试粘贴更完整的题目或知识点内容。');
         return;
       }
       this._preview = result;
       this.renderPreview(result);
+      if (result.skipped) {
+        alert(`资料较长，只处理了前 ${result.segments} 段（末尾 ${result.skipped} 段未处理）。\n建议按章节拆成几份分别导入，题量会更完整。`);
+      }
     } catch (e) {
       alert('生成失败：' + e.message);
     } finally {
@@ -604,30 +609,50 @@ const App = {
   /* ---------- 成就勋章 ---------- */
   async renderAchievements() {
     const life = await Achievements.lifetimeStats();
+    const rec = await Achievements.dailyRecords();
+    const today = await Achievements.todayStats();
     const all = await DB.getAttempts();
     const totalQ = all.length;
     const right = all.filter(a => a.correct).length;
     const accuracy = totalQ ? Math.round(right / totalQ * 100) : 0;
 
-    document.getElementById('achievementBody').innerHTML = `
-      <div class="ach-overview">
-        <div class="ach-stat"><div class="ach-stat-val">${life.days}</div><div class="ach-stat-lbl">累计学习天数</div></div>
-        <div class="ach-stat"><div class="ach-stat-val">${Achievements.formatDuration(life.totalSeconds)}</div><div class="ach-stat-lbl">累计学习时长</div></div>
-        <div class="ach-stat"><div class="ach-stat-val">${totalQ}</div><div class="ach-stat-lbl">累计作答次数</div></div>
-        <div class="ach-stat"><div class="ach-stat-val">${accuracy}%</div><div class="ach-stat-lbl">总正确率</div></div>
-      </div>
-      <div class="ach-grid">${this.buildBadges(life.days, totalQ, accuracy).map(b => `
+    const groups = this.buildBadges(life.days, totalQ, accuracy, rec, today);
+    const card = b => `
         <div class="ach-card ${b.got ? '' : 'locked'}">
           <div class="ach-medal">${b.got ? b.icon : '🔒'}</div>
           <div class="ach-name">${b.name}</div>
           <div class="ach-desc">${b.got ? b.desc : b.how}</div>
-        </div>`).join('')}</div>
+          ${!b.got && b.now ? `<div class="ach-now">${b.now}</div>` : ''}
+        </div>`;
+
+    document.getElementById('achievementBody').innerHTML = `
+      <div class="ach-overview">
+        <div class="ach-stat"><div class="ach-stat-val">${life.days}</div><div class="ach-stat-lbl">累计学习天数</div></div>
+        <div class="ach-stat"><div class="ach-stat-val">${Achievements.formatDuration(life.totalSeconds)}</div><div class="ach-stat-lbl">累计学习时长</div></div>
+        <div class="ach-stat"><div class="ach-stat-val">${rec.maxQ}<span style="font-size:13px"> 题</span></div><div class="ach-stat-lbl">最佳单日${rec.maxQDate ? ' · ' + rec.maxQDate.slice(5) : ''}</div></div>
+        <div class="ach-stat"><div class="ach-stat-val">${accuracy}%</div><div class="ach-stat-lbl">总正确率</div></div>
+      </div>
+
+      <div class="ach-sec">
+        <div class="ach-sec-title">🔥 每日纪录<span class="ach-sec-sub">一天的高光也算数，今天二十道就值得夸</span></div>
+        <div class="ach-grid">${groups.daily.map(card).join('')}</div>
+      </div>
+
+      <div class="ach-sec">
+        <div class="ach-sec-title">🌿 长期成就<span class="ach-sec-sub">靠日积月累慢慢长出来</span></div>
+        <div class="ach-grid">${groups.lifetime.map(card).join('')}</div>
+      </div>
+
       <p class="hint-text">勋章按你真实的学习记录自动点亮，不需要打卡、也没有排名。慢慢来，比较快。</p>
     `;
   },
 
-  buildBadges(days, totalQ, accuracy) {
-    const defs = [
+  buildBadges(days, totalQ, accuracy, rec, today) {
+    rec = rec || { maxQ: 0, maxMinutes: 0, maxAccuracy: 0 };
+    const todayQ = today ? today.completed : 0;
+    const todayMin = today ? Math.floor(today.studySeconds / 60) : 0;
+
+    const lifetime = [
       { name: '启程之芽', icon: '🌱', desc: '开始了，就是最好的一步', how: '学习满 1 天解锁', got: days >= 1 },
       { name: '三日新苗', icon: '🌿', desc: '连续的心血，正在发芽', how: '学习满 3 天解锁', got: days >= 3 },
       { name: '学习小新星', icon: '🌟', desc: '一周的坚持，很了不起', how: '学习满 7 天解锁', got: days >= 7 },
@@ -637,7 +662,18 @@ const App = {
       { name: '学习达人', icon: '🏆', desc: '一个月的陪伴，已成习惯', how: '学习满 30 天解锁', got: days >= 30 },
       { name: '学习宗师', icon: '👑', desc: '百日筑基，厚积薄发', how: '学习满 100 天解锁', got: days >= 100 }
     ];
-    return defs;
+
+    const daily = [
+      { name: '今日二十题', icon: '🥾', desc: '一天二十道，值得夸一句', how: '单日完成 20 题解锁', got: rec.maxQ >= 20, now: `今天 ${todayQ} / 20 题` },
+      { name: '半百', icon: '🔥', desc: '一天五十道，很扎实', how: '单日完成 50 题解锁', got: rec.maxQ >= 50, now: `今天 ${todayQ} / 50 题` },
+      { name: '百题日', icon: '💯', desc: '一天一百道，这一天值得记住', how: '单日完成 100 题解锁', got: rec.maxQ >= 100, now: `今天 ${todayQ} / 100 题` },
+      { name: '两百题', icon: '🚀', desc: '一天两百道，状态在线', how: '单日完成 200 题解锁', got: rec.maxQ >= 200, now: `今天 ${todayQ} / 200 题` },
+      { name: '一小时专注', icon: '⏳', desc: '单日学习满一小时', how: '单日学习 60 分钟解锁', got: rec.maxMinutes >= 60, now: `今天 ${todayMin} / 60 分钟` },
+      { name: '两小时深耕', icon: '🕰️', desc: '单日学习满两小时', how: '单日学习 120 分钟解锁', got: rec.maxMinutes >= 120, now: `今天 ${todayMin} / 120 分钟` },
+      { name: '神准日', icon: '🎯', desc: '单日正确率 90% 以上', how: '单日正确率 ≥ 90%（当天 ≥ 20 题）解锁', got: rec.maxAccuracy >= 90, now: `今天 ${today ? today.accuracy : 0}%` }
+    ];
+
+    return { lifetime, daily };
   },
 
   /* ---------- 设置 ---------- */

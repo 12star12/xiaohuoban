@@ -127,6 +127,44 @@
       return { days, totalSeconds };
     },
 
+    /** 单日纪录：历史上最高的单日题量 / 时长 / 正确率（一天的高光也值得被记住） */
+    async dailyRecords() {
+      const all = await DB.getAttempts();
+      const byDay = {};
+      all.forEach(a => {
+        const d = new Date(a.ts);
+        const key = d.getFullYear() + '-' +
+          String(d.getMonth() + 1).padStart(2, '0') + '-' +
+          String(d.getDate()).padStart(2, '0');
+        const r = byDay[key] || (byDay[key] = { ids: {}, total: 0, right: 0 });
+        r.ids[a.questionId] = 1;
+        r.total++;
+        if (a.correct) r.right++;
+      });
+
+      let maxQ = 0, maxQDate = '';
+      let maxAcc = 0, maxAccDate = '';
+      Object.keys(byDay).forEach(k => {
+        const r = byDay[k];
+        const q = Object.keys(r.ids).length;
+        if (q > maxQ) { maxQ = q; maxQDate = k; }
+        // 题量太少的准确率不算纪录，避免 3 题全对拿 100%
+        if (r.total >= 20) {
+          const acc = Math.round(r.right / r.total * 100);
+          if (acc > maxAcc) { maxAcc = acc; maxAccDate = k; }
+        }
+      });
+
+      const times = await DB.allStudyTime();
+      let maxMin = 0, maxMinDate = '';
+      times.forEach(t => {
+        const m = Math.floor((t.seconds || 0) / 60);
+        if (m > maxMin) { maxMin = m; maxMinDate = t.date; }
+      });
+
+      return { maxQ, maxQDate, maxMinutes: maxMin, maxMinDate, maxAccuracy: maxAcc, maxAccDate };
+    },
+
     /** 判断并触发阶段性鼓励。根据最近表现分类，返回鼓励文案或 null。 */
     async maybeEncourage() {
       const step = await DB.getSetting('encourageStep', ENCOURAGE_STEP);

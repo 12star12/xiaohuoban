@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>小知伴 · 一起变得更好</title>
+<title>小伙伴 · 一起变得更好</title>
 <link rel="stylesheet" href="styles.css">
 <script src="assets/pdf.min.js"></script>
 <script src="assets/mammoth.browser.min.js"></script>
@@ -16,7 +16,7 @@
     <div class="brand">
       <div class="brand-mark">🌱</div>
       <div class="brand-text">
-        <div class="brand-name">小知伴</div>
+        <div class="brand-name">小伙伴</div>
         <div class="brand-sub">一起变得更好♡</div>
       </div>
     </div>
@@ -135,6 +135,16 @@
         <div class="panel import-side">
           <div class="panel-title">模型状态</div>
           <div id="modelStatus"></div>
+          <div class="gen-opt">
+            <label for="perChapter">每章题量</label>
+            <select id="perChapter" class="field">
+              <option value="3">3 道</option>
+              <option value="5" selected>5 道</option>
+              <option value="8">8 道</option>
+              <option value="10">10 道</option>
+            </select>
+          </div>
+          <p class="hint-text" style="margin:0 0 12px">资料里的「第X章 / 第X节 / 一、二、」会被当作章节边界，每一章单独出题。</p>
           <button class="btn primary wide" id="genBtn" onclick="App.generate()">生成题库</button>
           <p class="hint-text" id="importHint">生成过程可能需要十几秒，请耐心等待。Key 只保存在本机。</p>
         </div>

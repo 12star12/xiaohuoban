@@ -1,4 +1,4 @@
-/* 小知伴 · 一起变得更好
+/* 小伙伴 · 一起变得更好
    设计基调：温暖、明亮、可爱、有成长感。
    暖橙奶油色 + 圆润卡片 + 柔和阴影 + 卡通插画。 */
 
@@ -225,8 +225,7 @@ button { cursor: pointer; }
 .badge-days { font-size: 11.5px; color: var(--ink-2); margin-top: 10px; }
 .badge-days b { font-size: 16px; color: var(--orange-deep); }
 
-/* ---------- 今日寄语 ---------- */
-.quote-row { display: grid; grid-template-columns: 1fr; gap: 18px; }
+/* ---------- 今日寄语 ---------- */.quote-row { display: grid; grid-template-columns: 1fr; gap: 18px; }
 .today-quote { position: relative; padding: 20px 26px; }
 .tq-leaf { position: absolute; left: 12px; top: 14px; font-size: 18px; }
 .tq-label { font-size: 12px; font-weight: 700; color: var(--orange-deep); margin-bottom: 6px; margin-left: 22px; }
@@ -326,6 +325,12 @@ button { cursor: pointer; }
 .import-text:focus { border-color: var(--orange); }
 .import-tools { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
 .file-btn { display: inline-block; }
+.gen-opt {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin: 14px 0 8px;
+  font-size: 13px; color: var(--ink-2); font-weight: 600;
+}
+.gen-opt select { width: 110px; padding: 7px 10px; }
 .model-ok { color: #5d9b6c; font-size: 12.5px; font-weight: 600; }
 .model-bad { color: var(--clay); font-size: 12.5px; }
 .preview-box { margin-top: 18px; }
@@ -401,6 +406,13 @@ button { cursor: pointer; }
 .ach-medal { width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; font-size: 32px; background: radial-gradient(circle at 35% 30%, #fff4cf, #f6d488); border: 3px solid #fff; box-shadow: 0 4px 12px rgba(224,169,79,.24); }
 .ach-name { font-size: 14px; font-weight: 800; color: var(--ink); }
 .ach-desc { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
+.ach-now { font-size: 10.5px; color: var(--orange-deep); margin-top: 6px; font-weight: 700; }
+.ach-sec { margin-bottom: 24px; }
+.ach-sec-title {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  font-size: 13.5px; font-weight: 800; color: var(--ink); margin: 0 0 12px 2px;
+}
+.ach-sec-sub { font-size: 11px; font-weight: 400; color: var(--ink-3); }
 .ach-overview { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
 .ach-stat { flex: 1; min-width: 130px; background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; box-shadow: var(--shadow); }
 .ach-stat-val { font-size: 28px; font-weight: 800; color: var(--orange-deep); line-height: 1.1; }

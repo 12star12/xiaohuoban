@@ -51,45 +51,57 @@ const PRESETS = {
   }
 };
 
-const SYSTEM_PROMPT = `你是一个严谨的题库结构化和出题助手。用户会给你一段复习资料（可能是知识点整理、题目、讲义摘录），你需要把它整理成结构化的刷题题库。
+const SYSTEM_PROMPT = `你是一个严谨的题库生成助手。用户会给你一份复习资料（知识点整理、讲义、章节笔记，或现成的题目），你要把它变成可以直接刷的选择题库。
 
-【核心任务】
-1. 提取资料中已有的题目，逐题结构化。
-2. 对开放性题目（计算题、简答题、证明题、论述题），额外改写成选择题，方便自动判分和刷题。
-3. 为每道题标注涉及的知识点标签（tags）。
+【第一原则：知识点整理也要出题，而且是主力场景】
+原文里没有现成题目，不代表你没有题可出——把陈述句变成考题才是你的本职。
+- 每个独立知识点（一个术语、一条规则、一个构成要件、一组例外情形、一个程序步骤），至少出 1 道题。
+- 题量要跟知识点密度走：一份知识点整理，通常每 200–300 字就该有 1 道题。
+- 绝不因为"原文只有陈述"就只象征性地出几道。用户要的是能练一天的题，不是 8 道。
+- 遇到确实无法出题的内容（目录、编委会名单、纯致谢），跳过即可，不必勉强。
 
-【题型要求】
-- 原文中已有 A/B/C/D 选项的选择题 → type 设为 "choice"，保留原选项。
-- 原文中的填空题 → type 设为 "blank"，answer 为填空答案。
-- 计算题/简答题/证明题/开放论述题 → 产出两条：
-  a) 一条 type="calculation" 保留原开放题和完整答案/解析；
-  b) 一条 type="choice" 由你改写：题干不变或等价改写，设计 4 个选项（1 个正确 + 3 个有代表性的干扰项，干扰项要体现典型错误），answer 为正确选项字母 A/B/C/D，explanation 说明为什么对、干扰项错在哪。
-- 纯知识点陈述（没有题目）→ 若信息足够，围绕它出 1-3 道选择题巩固；否则跳过。
+【第二原则：按章节组织】
+- 资料里有"第X章 / 第X节 / 一、二、三、 / ## 标题"这类结构时，按章节分组出题。
+- 每一章的题量见用户指令（默认每章 5 道）。章节内知识点多，可以适量多出，但不要把所有题压在第一章。
+- 每道题的 tags 第一个元素写所属章节名（如 "第三章 公司的设立"），后面再写具体知识点。
+
+【题型判定】
+- 原文已有 A/B/C/D 选项的选择题 → type="choice"，保留原选项，origin="original"。
+- 填空题 → type="blank"，answer 为填空答案。
+- 简答 / 论述 / 案例分析 / 计算题 → 产出两条：
+  a) type="calculation"，保留原题与完整答案，origin="original"；
+  b) type="choice"，改写成四选一，origin="rewritten"，answer 为字母 A/B/C/D。
+- 纯知识点陈述 → 直接出 type="choice"，不需要额外的开放题版本。
+
+【出题质量】
+- 考"是否真懂"，不是考"是否背过原句"：用小案例、条件判断、易混概念辨析、给错误表述让你挑错。
+- 干扰项要像真的：把典型误区做成选项——张冠李戴（把 A 制度的条件套到 B）、条件记错（把"可以"记成"应当"）、例外当原则。
+- 四个选项长度接近、表述同样正式，不要靠"明显很离谱"来凑数。
+- 解析写两句：为什么对，其他选项错在哪。不要复述题干。
 
 【输出格式】
-严格输出一个 JSON 对象，不要任何 Markdown 代码块标记，不要解释文字。格式如下：
+严格输出一个 JSON 对象，不要 Markdown 代码块标记，不要任何解释文字：
 {
-  "title": "题库名称（根据资料内容拟定，简洁）",
-  "summary": "一句话说明这份资料覆盖了哪些知识点",
+  "title": "题库名称（简洁）",
+  "summary": "一句话说明覆盖了哪些知识点",
   "questions": [
     {
       "type": "choice | blank | calculation",
-      "stem": "题干文字（数学公式用 LaTeX，如 $x^2$）",
-      "options": ["A. 选项一", "B. 选项二", "C. 选项三", "D. 选项四"],
-      "answer": "正确选项字母或填空/简答答案",
-      "explanation": "解析：为什么正确，其他选项错在哪（简洁）",
-      "tags": ["知识点1", "知识点2"],
+      "stem": "题干",
+      "options": ["A. …", "B. …", "C. …", "D. …"],
+      "answer": "B",
+      "explanation": "解析…",
+      "tags": ["章节名", "知识点"],
       "origin": "original | rewritten"
     }
   ]
 }
 
 【严格要求】
-- options 仅在 type="choice" 时提供，其余题型不要 options 字段。
-- 干扰项必须合理，不能是明显错误的凑数选项。
-- 数学公式用 LaTeX 表示（如 $x^2$），保证可读。
-- 若资料内容过少或无法出题，返回 {"title":"...","summary":"...","questions":[]}。
-- 只输出纯 JSON 对象，不要用代码块包裹。`;
+- options 只在 type="choice" 时给，必须 4 个，以 "A. " "B. " 开头。
+- 章节标题只用来组织，不要把它本身当成一道题。
+- 数学公式用 LaTeX，如 $x^2$。
+- 只输出纯 JSON 对象。`;
 
 const LLM = {
   PRESETS,
@@ -167,26 +179,171 @@ const LLM = {
     return content;
   },
 
-  /** 结构化资料 → 题库对象。带一次 JSON 修复重试。 */
-  async structure(text, onProgress) {
+  /* ---------- 按章节切分 ---------- */
+
+  /** 识别章节标题行：Markdown 标题、第X章/节/讲、一、二、、（一） */
+  isHeading(line) {
+    const t = (line || '').trim();
+    if (!t || t.length > 48) return false;
+    return /^#{1,4}\s*\S/.test(t) ||
+           /^第\s*[一二三四五六七八九十百千零〇\d]+\s*[章节讲篇部]/.test(t) ||
+           /^[一二三四五六七八九十]+\s*[、．.]\s*\S/.test(t) ||
+           /^[（(]\s*[一二三四五六七八九十]+\s*[）)]\s*\S/.test(t);
+  },
+
+  /** 太长的段按空行切开，保证每次请求不超限 */
+  splitLong(seg, maxChars) {
+    if (seg.text.length <= maxChars) return [seg];
+    const paras = seg.text.split(/\n\s*\n/);
+    const out = [];
+    let buf = '';
+    let n = 1;
+    paras.forEach(p => {
+      if (buf && (buf.length + p.length + 2) > maxChars) {
+        out.push({ title: seg.title + (n > 1 ? '（续 ' + n + '）' : ''), text: buf.trim() });
+        n++;
+        buf = p;
+      } else {
+        buf = buf ? buf + '\n\n' + p : p;
+      }
+    });
+    if (buf.trim()) out.push({ title: seg.title + (n > 1 ? '（续 ' + n + '）' : ''), text: buf.trim() });
+    return out;
+  },
+
+  /** 按章节把资料切成若干段；没有章节结构时按长度切 */
+  splitByChapter(text, maxChars) {
+    maxChars = maxChars || 7000;
+    const lines = text.split(/\r?\n/);
+    const marks = [];
+    lines.forEach((ln, i) => { if (this.isHeading(ln)) marks.push(i); });
+
+    let segs;
+    if (marks.length >= 2) {
+      const bounds = marks[0] === 0 ? marks.slice() : [0].concat(marks);
+      segs = bounds.map((start, i) => {
+        const end = i + 1 < bounds.length ? bounds[i + 1] : lines.length;
+        const head = lines[start].trim().replace(/^#{1,4}\s*/, '').slice(0, 40);
+        const isPre = i === 0 && marks[0] !== 0;
+        return { title: isPre ? '开头部分' : head, text: lines.slice(start, end).join('\n').trim() };
+      });
+    } else {
+      segs = [{ title: '', text: text.trim() }];
+    }
+
+    const out = [];
+    segs.forEach(s => out.push.apply(out, this.splitLong(s, maxChars)));
+    return out.filter(s => s.text.trim().length > 0);
+  },
+
+  /** 把章节打包成若干次请求：一批最多 3 章、6000 字，保证每批都能出满题且不超输出上限 */
+  planBatches(segs, maxBatches) {
+    maxBatches = maxBatches || 12;
+    const MAX_CHAPTERS = 3;
+    const MAX_CHARS = 6000;
+    const batches = [];
+    let cur = null;
+    segs.forEach(s => {
+      const overflow = cur && (cur.count >= MAX_CHAPTERS || (cur.text.length + s.text.length + 2) > MAX_CHARS);
+      if (!cur || overflow) {
+        cur = { titles: [], text: '', count: 0 };
+        batches.push(cur);
+      }
+      cur.titles.push(s.title);
+      cur.text += (cur.text ? '\n\n' : '') + s.text;
+      cur.count++;
+    });
+    batches.forEach(b => {
+      b.title = b.titles.filter(Boolean)[0] || '';
+      b.label = b.count > 1 ? (b.title ? b.title + ' 等 ' + b.count + ' 节' : b.count + ' 个小节') : (b.title || '整段');
+    });
+    const skippedChapters = batches.length > maxBatches
+      ? batches.slice(maxBatches).reduce((n, b) => n + b.count, 0) : 0;
+    return { batches: batches.slice(0, maxBatches), skippedChapters };
+  },
+
+  /** 拼每次请求的指令 + 正文 */
+  buildUserText(batch, perChapter, idx, total) {
+    const batchInfo = total > 1 ? `（第 ${idx + 1} / ${total} 批）` : '';
+    const where = batch.label ? `当前处理：${batch.label}` : '当前处理：整份资料';
+    const target = batch.count > 1
+      ? `本批共 ${batch.count} 个章节，每个章节各出 ${perChapter} 道选择题（合计约 ${batch.count * perChapter} 道）。`
+      : (batch.title
+          ? `本段是「${batch.title}」，出 ${perChapter} 道选择题（知识点多可到 ${perChapter + 3} 道）。`
+          : `本段没有明确章节，按知识点密度出题：每 200–300 字 1 道，总数不少于 ${perChapter} 道。`);
+
+    return `${batchInfo}${where}
+${target}
+每个章节都必须有题，不要集中在开头几节；宁可多出，不要少出。
+
+资料正文：
+"""
+${batch.text}
+"""
+
+按系统提示的要求输出 JSON。`;
+  },
+
+  /** 结构化资料 → 题库对象。按章节分批请求，合并去重。 */
+  async structure(text, opts, onProgress) {
+    if (typeof opts === 'function') { onProgress = opts; opts = {}; }
+    opts = opts || {};
+    const perChapter = Math.max(1, Math.min(20, parseInt(opts.perChapter, 10) || 5));
+
     const cfg = await this.getConfig();
     const err = this.validate(cfg);
     if (err) throw new Error(err);
 
-    if (onProgress) onProgress('正在让模型阅读资料并出题…');
-    let raw = await this.chat(cfg, text, SYSTEM_PROMPT);
+    let segs = this.splitByChapter(text, 7000);
+    if (!segs.length) segs = [{ title: '', text: text.trim() }];
+    const plan = this.planBatches(segs, 12);
+    const batches = plan.batches;
 
-    let parsed;
-    try {
-      parsed = this.parseJSON(raw);
-    } catch (e) {
-      if (onProgress) onProgress('整理结果格式有偏差，正在自动修正…');
-      const fixPrompt = '把下面的内容修正为严格合法的 JSON 对象，只输出 JSON，不要任何解释或代码块标记：\n\n' + raw;
-      raw = await this.chat(cfg, fixPrompt, '你是 JSON 格式修正助手，只输出合法 JSON。');
-      parsed = this.parseJSON(raw);
+    const results = [];
+    for (let i = 0; i < batches.length; i++) {
+      const label = batches[i].label || ('第 ' + (i + 1) + ' 批');
+      if (onProgress) {
+        onProgress(batches.length > 1
+          ? `正在出题：${label}（${i + 1}/${batches.length}）…`
+          : '正在让模型阅读资料并出题…');
+      }
+      const userText = this.buildUserText(batches[i], perChapter, i, batches.length);
+      let raw = await this.chat(cfg, userText, SYSTEM_PROMPT);
+      let parsed;
+      try {
+        parsed = this.parseJSON(raw);
+      } catch (e) {
+        if (onProgress) onProgress(`「${label}」的格式有偏差，正在自动修正…`);
+        raw = await this.chat(cfg,
+          '把下面的内容修正为严格合法的 JSON 对象，只输出 JSON，不要任何解释或代码块标记：\n\n' + raw,
+          '你是 JSON 格式修正助手，只输出合法 JSON。');
+        parsed = this.parseJSON(raw);
+      }
+      results.push(this.normalize(parsed));
     }
 
-    return this.normalize(parsed);
+    // 合并 + 按题干去重
+    const seen = new Set();
+    const questions = [];
+    results.forEach(r => r.questions.forEach(q => {
+      const key = q.stem.replace(/\s+/g, '').replace(/[，。；、？?！!：:（）()【】"“”'']/g, '').slice(0, 42);
+      if (seen.has(key)) return;
+      seen.add(key);
+      questions.push(q);
+    }));
+
+    const titles = results.map(r => r.title).filter(Boolean);
+    const title = titles.length ? titles[0] : '未命名题库';
+    const summaries = results.map(r => r.summary).filter(Boolean);
+    const head = summaries.length ? summaries[0] : '';
+    const summary = (head ? head + '　' : '') +
+      `共 ${segs.length} 节、${batches.length} 批处理，整理出 ${questions.length} 道题` +
+      (plan.skippedChapters ? `（资料过长，末尾约 ${plan.skippedChapters} 节未处理，建议分批导入）` : '');
+
+    return {
+      title, summary, questions,
+      segments: segs.length, batches: batches.length, skipped: plan.skippedChapters
+    };
   },
 
   /** 从可能带代码块标记的文本中提取 JSON */
