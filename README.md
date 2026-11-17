@@ -143,4 +143,11 @@ PDF 解析用 pdf.js，DOCX 解析用 mammoth.js，两个库都已放进 `assets
 
 ## 许可
 
-个人学习自用。第三方库（pdf.js / mammoth.js）遵循其各自许可证。
+**允许非商业使用，禁止未经同意的商业使用。**
+
+- 个人复习、自学、课堂教学、朋友之间无偿分享 → 随便用，随便改
+- 售卖、付费课程/社群/服务、商业产品内嵌、公司对外经营 → **必须先取得作者同意**
+
+详见 [LICENSE](LICENSE)。第三方库（pdf.js / mammoth.js）遵循其各自许可证。
+
+需要商业授权请通过 GitHub 联系 [@12star12](https://github.com/12star12)。
