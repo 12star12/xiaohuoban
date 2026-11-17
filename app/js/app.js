@@ -736,8 +736,8 @@ const App = {
     const isRight = correct;
     document.getElementById('feedbackZone').innerHTML = `
       <div class="answer-box ${isRight ? 'ok' : 'no'}">
-        <div class="answer-label">${isRight ? '答对了' : '再看看'}</div>
-        ${q.explanation ? this.esc(q.explanation) : (isRight ? '继续保持。' : '正确答案：' + this.esc(q.answer))}
+        <div class="answer-label">${isRight ? '真棒！为你感到骄傲！' : '答错啦，再接再厉！'}</div>
+        ${q.explanation ? this.esc(q.explanation) : (isRight ? '这题没写解析，答案记住就行。' : '正确答案：' + this.esc(q.answer))}
       </div>
       <div class="quiz-footer">
         <span></span>
