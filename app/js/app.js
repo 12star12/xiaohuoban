@@ -69,22 +69,35 @@ const App = {
     if (renders[view]) renders[view]();
   },
 
-  /** 每道题做过几次（按答题记录累计，改答案/删题不影响） */
+  /** 每道题 / 每套题库做过几次（按答题记录累计，改答案/删题不影响） */
   async refreshAttemptCounts() {
     try {
       const all = await DB.getAttempts();
-      const m = {};
-      all.forEach(a => { if (a.questionId) m[a.questionId] = (m[a.questionId] || 0) + 1; });
+      const m = {}, byBank = {};
+      all.forEach(a => {
+        if (a.questionId) m[a.questionId] = (m[a.questionId] || 0) + 1;
+        if (a.bankId) byBank[a.bankId] = (byBank[a.bankId] || 0) + 1;
+      });
       this._attemptCounts = m;
-    } catch (e) { this._attemptCounts = {}; }
+      this._bankAttemptCounts = byBank;
+    } catch (e) { this._attemptCounts = {}; this._bankAttemptCounts = {}; }
   },
 
   attemptCount(qid) {
     return (this._attemptCounts && this._attemptCounts[qid]) || 0;
   },
 
+  bankDoneCount(bankId) {
+    return (this._bankAttemptCounts && this._bankAttemptCounts[bankId]) || 0;
+  },
+
   doneBadge(qid) {
     const n = this.attemptCount(qid);
+    return n ? `<span class="done-count">已做 ${n} 次</span>` : '';
+  },
+
+  bankDoneBadge(bankId) {
+    const n = this.bankDoneCount(bankId);
     return n ? `<span class="done-count">已做 ${n} 次</span>` : '';
   },
 
@@ -206,6 +219,7 @@ const App = {
 
   /* ---------- 题库 ---------- */
   async renderLibrary() {
+    await this.refreshAttemptCounts();
     const banks = await DB.getBanks();
     const el = document.getElementById('bankList');
     if (!banks.length) {
@@ -236,12 +250,13 @@ const App = {
       const items = groups[folder];
       const open = !(this._closedFolders && this._closedFolders.has(folder));
       const qCount = items.reduce((n, b) => n + (b.count || 0), 0);
+      const folderDone = items.reduce((n, b) => n + this.bankDoneCount(b.id), 0);
       const cards = items.map(b => {
         const tags = (b.tags || []).slice(0, 6).map(t => `<span class="tag">${this.esc(t)}</span>`).join('');
         return `
         <div class="bank-item">
           <div>
-            <div class="bank-title">${this.esc(b.name)}</div>
+            <div class="bank-title">${this.esc(b.name)} ${this.bankDoneBadge(b.id)}</div>
             <div class="bank-meta">${b.count} 道题 · ${new Date(b.createdAt).toLocaleDateString('zh-CN')}${b.summary ? ' · ' + this.esc(b.summary) : ''}</div>
             <div class="bank-tags">${tags}</div>
           </div>
@@ -257,7 +272,7 @@ const App = {
         <div class="folder-head" onclick="App.toggleFolder('${this.esc(folder)}')">
           <span class="folder-caret ${open ? '' : 'collapsed'}">▾</span>
           <span class="folder-name">📁 ${this.esc(folder)}</span>
-          <span class="folder-count">${items.length} 套题库 · ${qCount} 题</span>
+          <span class="folder-count">${items.length} 套题库 · ${qCount} 题${folderDone ? ' · 已做 ' + folderDone + ' 次' : ''}</span>
           ${folder !== '未分类' ? `<button class="folder-rename" title="重命名文件夹" onclick="event.stopPropagation();App.renameFolder('${this.esc(folder)}')">✎</button>` : ''}
         </div>
         <div class="folder-body" style="display:${open ? 'block' : 'none'}">${cards}</div>
@@ -612,6 +627,7 @@ const App = {
 
   /* ---------- 刷题 ---------- */
   async renderPracticeSelect() {
+    await this.refreshAttemptCounts();
     const banks = await DB.getBanks();
     const el = document.getElementById('practiceBody');
     document.getElementById('practiceSub').textContent = '选择一套题库，开始今天的练习。';
@@ -643,9 +659,10 @@ const App = {
       + `<div class="quiz-select"${sessions.length ? ' style="margin-top:14px"' : ''}>${banks.map(b => {
         const x = byKey[this.sessionKeyFor(b)];
         const act = x ? `App.resumeQuiz(decodeURIComponent('${jk(x.key)}'))` : `App.startQuizById('${b.id}')`;
+        const done = this.bankDoneBadge(b.id);
         const hint = x ? `第 ${Math.min(x.index + 1, x.questions.length)} / ${x.questions.length} 题 · 点击继续` : `${b.count} 道题 · 点击开始`;
         return `<button class="quiz-card" onclick="${act}">
-          <div class="quiz-card-title">${this.esc(b.name)}</div>
+          <div class="quiz-card-title">${this.esc(b.name)} ${done}</div>
           <div class="hint-text" style="margin-top:4px">${hint}</div>
         </button>`;
       }).join('')}</div>`;
@@ -958,6 +975,11 @@ const App = {
     });
     if (!this._attemptCounts) this._attemptCounts = {};
     this._attemptCounts[q.id] = (this._attemptCounts[q.id] || 0) + 1;
+    const doneBankId = q.bankId || (this.currentBank && this.currentBank.id);
+    if (doneBankId) {
+      if (!this._bankAttemptCounts) this._bankAttemptCounts = {};
+      this._bankAttemptCounts[doneBankId] = (this._bankAttemptCounts[doneBankId] || 0) + 1;
+    }
     const numEl = document.querySelector('.quiz-q-num');
     if (numEl) {
       const old = numEl.querySelector('.done-count');
