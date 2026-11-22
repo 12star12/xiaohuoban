@@ -116,6 +116,10 @@ const EXTRACT_PROMPT = `你是题库整理助手。用户给你的资料**已经
 【最高原则：只整理，不出题】
 - 原文有几道就整理几道，一道不多、一道不少。绝不自己补题，绝不把一道题拆成两道，也绝不合并。
 - 题干原样保留：只清掉 Markdown 标记（**、#、>、多余空行），不要意译、不要精简、不要改写措辞、不要补全条件。
+- **但原文题干本身就不完整时必须补全**（这条优先于上一条）：判断标准是题干读完后能否明确回答选出某个选项。
+  - 只有标题/短语、没有问句（如"四个基本概念（数据/DB/DBMS/DBS）——选择题常考辨析""层次模型（IMS）vs 网状模型（DBTG）"）→ 不算完整题干，必须根据选项和原文补上明确的问题，例如"数据库、DB、DBMS、DBS 四个概念中，负责管理数据库的是哪一个？""IMS 和 DBTG 分别代表哪种数据模型？"。补全时只能在原文已有信息里组织措辞，不得引入原文没有的知识点；补好后 origin 仍填 "original"，answerSource 填 "inferred"。
+  - 题干里有"____""（ ）""："等符号却没说明要填什么 → 补成完整问句。
+  - 一个标题下面只列了几个名词、没有提问 → 这是知识点罗列，不是题目，跳过它，不要硬凑成题。
 - 选项原样保留：保留原来的顺序和内容，统一写成 "A. …" "B. …" 的格式。
 - 保持原文顺序和题号顺序，不要重新排列。
 - 原文的章节标题、题型分组（"一、单项选择题"、"二、判断题"）不要单独当成题目，把分组名写进该题 tags 的第一个元素。
@@ -373,12 +377,17 @@ ${batch.text}
     if (t.trim().length < 20) return empty;
 
     // 题号行：1. / 1、/ 第1题 / （1）
+    // 光有题号+选项还不够：知识点罗列（"1. 四个基本概念——选择题常考辨析"）也会被误判成题目，
+    // 所以题干本身必须像一道能回答的题（带问号或提问词），否则不算现成题。
+    const looksLikeQuestion = (s) => /[？?]/.test(s)
+      || /(以下|下列|哪个|哪些|哪项|哪一种|下列说法|是否正确|属于|不属于|正确的是|错误的是|是指|指的是|称为|等于|多少|如何|为什么|请|指出|判断|选出|表示|代表)/.test(s);
     let questions = 0;
     t.split(/\r?\n/).forEach(raw => {
       const ln = raw.trim().replace(/^[#>*\s]+/, '').replace(/\*+$/, '').trim();
       if (!ln || ln.length < 6) return;
-      if (/^(?:\d{1,3}|第\s*\d{1,3}\s*[题问])\s*[.、．)）:：]/.test(ln)) questions++;
-      else if (/^[（(]\s*\d{1,3}\s*[）)]\s*\S/.test(ln) && ln.length > 10) questions++;
+      const numbered = /^(?:\d{1,3}|第\s*\d{1,3}\s*[题问])\s*[.、．)）:：]\s*(.+)$/.exec(ln)
+        || /^[（(]\s*\d{1,3}\s*[）)]\s*(\S.{9,})$/.exec(ln);
+      if (numbered && looksLikeQuestion(numbered[1] || '')) questions++;
     });
     if (!questions) return Object.assign({}, empty, { options: 0 });
 
@@ -593,6 +602,13 @@ ${batch.text}
   /** 生成后质检：抓明显的答案/解析自相矛盾（模型偶尔把"正确表述"标成错误答案） */
   audit(q) {
     const warns = [];
+    const stem = String(q.stem || '').trim();
+    // 题干不完整：只是标题/短语，读完后不知道要选什么
+    const hasQuestion = /[？?]/.test(stem)
+      || /(以下|下列|哪个|哪些|哪项|哪一种|下列说法|属于|不属于|正确|错误|是否有|能否|应该|应当|多少|如何|什么|为什么|请|指出|判断|选出|表示|代表|称为|指的是)/.test(stem);
+    if (q.type === 'choice' && stem && !hasQuestion) {
+      warns.push('题干疑似不完整：读起来像标题或短语，不像一道能回答的题');
+    }
     if (q.type !== 'choice') return warns;
     const ans = String(q.answer || '').trim();
     const letters = (ans.toUpperCase().match(/[A-D]/g) || []);
