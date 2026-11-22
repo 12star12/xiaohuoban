@@ -599,82 +599,153 @@ const App = {
         <div style="margin-top:18px"><button class="btn primary" onclick="App.showImport()">去导入资料</button></div></div>`;
       return;
     }
-    const s = this.loadQuizSession();
-    const resumeCard = s ? `
+    const sessions = this.allQuizSessions();
+    const byKey = {};
+    sessions.forEach(x => { byKey[x.key] = x; });
+    const jk = k => encodeURIComponent(k);
+    const when = t => t ? new Date(t).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    const resumeCards = sessions.map(x => `
       <div class="resume-card">
         <div>
-          <div class="resume-title">⏳ 上次还有一套题没做完</div>
-          <div class="resume-meta">${this.esc((s.bank && s.bank.name) || '上次的练习')} · 做到第 ${Math.min(s.index + 1, s.questions.length)} / ${s.questions.length} 题</div>
+          <div class="resume-title">⏳ ${this.esc((x.bank && x.bank.name) || '上次的练习')}</div>
+          <div class="resume-meta">做到第 ${Math.min(x.index + 1, x.questions.length)} / ${x.questions.length} 题${when(x.savedAt) ? ' · ' + when(x.savedAt) : ''}</div>
         </div>
         <div class="resume-actions">
-          <button class="btn primary" onclick="App.resumeQuiz()">从这里继续 →</button>
-          <button class="btn" onclick="App.discardQuizSession()">不续了</button>
+          <button class="btn primary" onclick="App.resumeQuiz(decodeURIComponent('${jk(x.key)}'))">接着做 →</button>
+          <button class="btn" onclick="App.restartSession(decodeURIComponent('${jk(x.key)}'))">重开一轮</button>
+          <button class="btn" onclick="App.discardQuizSession(decodeURIComponent('${jk(x.key)}'))">不续了</button>
         </div>
-      </div>` : '';
-    el.innerHTML = resumeCard + `<div class="quiz-select"${s ? ' style="margin-top:14px"' : ''}>${banks.map(b => `
-      <button class="quiz-card" onclick="App.startQuizById('${b.id}')">
-        <div class="quiz-card-title">${this.esc(b.name)}</div>
-        <div class="hint-text" style="margin-top:4px">${b.count} 道题 · 点击开始</div>
-      </button>`).join('')}</div>`;
+      </div>`).join('');
+    el.innerHTML = (resumeCards ? `<div class="resume-list">${resumeCards}</div>` : '')
+      + `<div class="quiz-select"${sessions.length ? ' style="margin-top:14px"' : ''}>${banks.map(b => {
+        const x = byKey[this.sessionKeyFor(b)];
+        const act = x ? `App.resumeQuiz(decodeURIComponent('${jk(x.key)}'))` : `App.startQuizById('${b.id}')`;
+        const hint = x ? `第 ${Math.min(x.index + 1, x.questions.length)} / ${x.questions.length} 题 · 点击继续` : `${b.count} 道题 · 点击开始`;
+        return `<button class="quiz-card" onclick="${act}">
+          <div class="quiz-card-title">${this.esc(b.name)}</div>
+          <div class="hint-text" style="margin-top:4px">${hint}</div>
+        </button>`;
+      }).join('')}</div>`;
   },
 
-  /* ---------- 断点续练：把进度存在本地，重开 App 也能接着做 ---------- */
+  /* ---------- 断点续练：每个学科各存一份，切学科不互相覆盖 ---------- */
+  sessionKeyFor(bank) {
+    if (!bank) return '';
+    return bank.id === '__wrong__' ? 'wrong:' + (bank.folder || '') : 'bank:' + bank.id;
+  },
+
+  readSessionStore() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(QUIZ_SESSION_KEY) || 'null');
+      if (!raw) return { sessions: {}, lastKey: '' };
+      // 兼容旧版单槽存档
+      if (raw.bank && Array.isArray(raw.questions)) {
+        const key = this.sessionKeyFor(raw.bank) || 'legacy';
+        return { sessions: { [key]: Object.assign({}, raw, { key }) }, lastKey: key };
+      }
+      if (!raw.sessions || typeof raw.sessions !== 'object') return { sessions: {}, lastKey: '' };
+      return { sessions: raw.sessions, lastKey: raw.lastKey || '' };
+    } catch (e) { return { sessions: {}, lastKey: '' }; }
+  },
+
+  writeSessionStore(store) {
+    try { localStorage.setItem(QUIZ_SESSION_KEY, JSON.stringify(store)); } catch (e) {}
+  },
+
   saveQuizSession(indexOverride) {
     if (!this.currentBank || !this.quizQueue || !this.quizQueue.length) return;
-    try {
-      const s = {
-        bank: Object.assign({}, this.currentBank),
-        questions: this.quizQueue,
-        index: typeof indexOverride === 'number' ? indexOverride : Math.max(this.quizProgressIndex || 0, this.quizIndex),
-        answers: (this.quizAnswers || []).map(a => ({
-          qid: a.q && a.q.id, correct: !!a.correct, userAnswer: a.userAnswer
-        })),
-        savedAt: Date.now()
-      };
-      localStorage.setItem(QUIZ_SESSION_KEY, JSON.stringify(s));
-    } catch (e) { /* 隐私模式或空间不足时静默跳过，不影响刷题 */ }
+    const key = this._sessionKey || this.sessionKeyFor(this.currentBank);
+    if (!key) return;
+    this._sessionKey = key;
+    const store = this.readSessionStore();
+    store.sessions[key] = {
+      key,
+      bank: Object.assign({}, this.currentBank),
+      questions: this.quizQueue,
+      index: typeof indexOverride === 'number' ? indexOverride : Math.max(this.quizProgressIndex || 0, this.quizIndex),
+      answers: (this.quizAnswers || []).map(a => ({
+        qid: a.q && a.q.id, correct: !!a.correct, userAnswer: a.userAnswer
+      })),
+      savedAt: Date.now()
+    };
+    store.lastKey = key;
+    this.writeSessionStore(store);
   },
 
-  loadQuizSession() {
-    try {
-      const s = JSON.parse(localStorage.getItem(QUIZ_SESSION_KEY) || 'null');
-      if (!s || !Array.isArray(s.questions) || !s.questions.length) return null;
-      s.index = Math.max(0, Math.min(Number(s.index) || 0, s.questions.length));
-      s.answers = Array.isArray(s.answers) ? s.answers : [];
-      s.bank = s.bank || { id: '__resume__', name: '上次的练习' };
-      return s;
-    } catch (e) { return null; }
+  normalizeSession(s, key) {
+    if (!s || !Array.isArray(s.questions) || !s.questions.length) return null;
+    s.key = key || s.key || '';
+    s.index = Math.max(0, Math.min(Number(s.index) || 0, s.questions.length));
+    s.answers = Array.isArray(s.answers) ? s.answers : [];
+    s.bank = s.bank || { id: '__resume__', name: '上次的练习' };
+    return s;
   },
 
-  clearQuizSession() {
-    try { localStorage.removeItem(QUIZ_SESSION_KEY); } catch (e) {}
+  loadQuizSession(key) {
+    const store = this.readSessionStore();
+    const k = key || store.lastKey;
+    if (!k || !store.sessions[k]) return null;
+    return this.normalizeSession(store.sessions[k], k);
+  },
+
+  allQuizSessions() {
+    const store = this.readSessionStore();
+    return Object.keys(store.sessions)
+      .map(k => this.normalizeSession(store.sessions[k], k))
+      .filter(Boolean)
+      .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+  },
+
+  clearQuizSession(key) {
+    const store = this.readSessionStore();
+    const k = key || this._sessionKey;
+    if (!k) return;
+    delete store.sessions[k];
+    if (store.lastKey === k) {
+      const rest = Object.keys(store.sessions)
+        .map(kk => ({ k: kk, t: store.sessions[kk].savedAt || 0 }))
+        .sort((a, b) => b.t - a.t);
+      store.lastKey = rest.length ? rest[0].k : '';
+    }
+    this.writeSessionStore(store);
   },
 
   async goPractice() {
-    // 从侧栏点「开始练习」时，有未做完的进度就直接接上
+    // 从侧栏点「开始练习」时，有未做完的进度就直接接上最近那一套
     const s = this.loadQuizSession();
     if (s && await this.applySession(s)) return;
     this.renderPracticeSelect();
   },
 
-  async resumeQuiz() {
-    const s = this.loadQuizSession();
+  async resumeQuiz(key) {
+    const s = this.loadQuizSession(key);
     if (s && await this.applySession(s)) return;
     this.renderPracticeSelect();
   },
 
-  discardQuizSession() {
-    this.clearQuizSession();
-    this.currentBank = null;
-    this.quizQueue = [];
-    this.quizIndex = 0;
-    this.quizProgressIndex = 0;
-    this.quizAnswers = [];
+  async restartSession(key) {
+    const s = this.loadQuizSession(key);
+    if (!s) return;
+    this.clearQuizSession(key);
+    if (s.bank && s.bank.id === '__wrong__') return this.startWrongQuiz(s.bank.folder || '');
+    return this.startQuizById(s.bank.id);
+  },
+
+  discardQuizSession(key) {
+    this.clearQuizSession(key);
+    if (!key || key === this._sessionKey) {
+      this.currentBank = null;
+      this.quizQueue = [];
+      this.quizIndex = 0;
+      this.quizProgressIndex = 0;
+      this.quizAnswers = [];
+    }
     this.renderPracticeSelect();
   },
 
   async applySession(s) {
     if (!s || !Array.isArray(s.questions) || !s.questions.length) return false;
+    this._sessionKey = s.key || this.sessionKeyFor(s.bank);
     this.currentBank = s.bank;
     this.quizQueue = s.questions;
     this.quizIndex = s.index;
@@ -715,7 +786,7 @@ const App = {
     this.quizProgressIndex = 0;
     this.quizAnswers = [];
     this.quizStartTs = Date.now();
-    this.clearQuizSession();
+    this._sessionKey = this.sessionKeyFor(bank);
     this.saveQuizSession();
     // 用 switchView 而非 go：避免 go 触发的异步 renderPracticeSelect 覆盖题目
     this.switchView('practice');
@@ -1097,7 +1168,7 @@ const App = {
     this.quizProgressIndex = 0;
     this.quizAnswers = [];
     this.quizStartTs = Date.now();
-    this.clearQuizSession();
+    this._sessionKey = this.sessionKeyFor(this.currentBank);
     this.saveQuizSession();
     this.switchView('practice');
     this.renderQuestion();
