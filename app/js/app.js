@@ -6,6 +6,7 @@ const App = {
   currentBank: null,
   quizQueue: [],
   quizIndex: 0,
+  quizProgressIndex: 0,   // 下一题的位置：答完但还没点「下一题」时也指向已答完之后
   quizAnswers: [],
   quizStartTs: 0,
   historyDays: 7,
@@ -26,6 +27,9 @@ const App = {
     setInterval(() => {
       if (this.currentView === 'home') this.renderHome();
     }, 20000);
+    // 有没做完的一轮，打开应用就直接接回上次那一题
+    const session = this.loadQuizSession();
+    if (session) await this.applySession(session);
   },
 
   currentView: 'home',
@@ -621,7 +625,7 @@ const App = {
       const s = {
         bank: Object.assign({}, this.currentBank),
         questions: this.quizQueue,
-        index: typeof indexOverride === 'number' ? indexOverride : this.quizIndex,
+        index: typeof indexOverride === 'number' ? indexOverride : Math.max(this.quizProgressIndex || 0, this.quizIndex),
         answers: (this.quizAnswers || []).map(a => ({
           qid: a.q && a.q.id, correct: !!a.correct, userAnswer: a.userAnswer
         })),
@@ -664,6 +668,7 @@ const App = {
     this.currentBank = null;
     this.quizQueue = [];
     this.quizIndex = 0;
+    this.quizProgressIndex = 0;
     this.quizAnswers = [];
     this.renderPracticeSelect();
   },
@@ -673,6 +678,7 @@ const App = {
     this.currentBank = s.bank;
     this.quizQueue = s.questions;
     this.quizIndex = s.index;
+    this.quizProgressIndex = s.index;
     this.quizAnswers = (s.answers || []).map(a => ({
       q: s.questions.find(q => q.id === a.qid) || null,
       correct: !!a.correct,
@@ -706,6 +712,7 @@ const App = {
     this.currentBank = bank;
     this.quizQueue = questions;
     this.quizIndex = 0;
+    this.quizProgressIndex = 0;
     this.quizAnswers = [];
     this.quizStartTs = Date.now();
     this.clearQuizSession();
@@ -767,6 +774,7 @@ const App = {
           <div class="quiz-top-actions">
             <button class="btn" onclick="App.fixQuestion()" title="答案或解析对不上？点这里改">这题有误</button>
             <button class="btn" onclick="App.exitQuiz()">退出练习</button>
+            <button class="btn" onclick="App.go('home')">回到今日</button>
           </div>
         </div>
         <div class="quiz-q-card">
@@ -852,7 +860,8 @@ const App = {
     });
     this.quizAnswers.push({ q, correct, userAnswer });
     // 答完就记下进度：即使此刻关掉窗口，下次也从下一题接着做
-    this.saveQuizSession(this.quizIndex + 1);
+    this.quizProgressIndex = this.quizIndex + 1;
+    this.saveQuizSession(this.quizProgressIndex);
 
     const isRight = correct;
     document.getElementById('feedbackZone').innerHTML = `
@@ -890,6 +899,7 @@ const App = {
         this.quizQueue.splice(this.quizIndex, 1);
         if (!this.quizQueue.length) { this.renderQuizDone(); return; }
         if (this.quizIndex >= this.quizQueue.length) this.quizIndex = this.quizQueue.length - 1;
+        this.quizProgressIndex = this.quizIndex;
         this.saveQuizSession();
         this.renderQuestion();
       } catch (e) {
@@ -912,6 +922,7 @@ const App = {
 
   nextQuestion() {
     this.quizIndex++;
+    this.quizProgressIndex = this.quizIndex;
     this.saveQuizSession();
     this.renderQuestion();
   },
@@ -1083,6 +1094,7 @@ const App = {
     };
     this.quizQueue = questions;
     this.quizIndex = 0;
+    this.quizProgressIndex = 0;
     this.quizAnswers = [];
     this.quizStartTs = Date.now();
     this.clearQuizSession();
