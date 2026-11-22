@@ -46,6 +46,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # 静默，不弹控制台
 
+    def end_headers(self):
+        # 所有静态资源禁止缓存：改了 JS/HTML 后刷新即可生效，不再需要清缓存
+        self.send_header('Cache-Control', 'no-store, must-revalidate')
+        self.send_header('Pragma', 'no-cache')
+        super().end_headers()
+
     def _plain(self, text, code=200):
         data = text.encode('utf-8')
         self.send_response(code)
