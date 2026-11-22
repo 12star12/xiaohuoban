@@ -16,6 +16,8 @@ const App = {
     this.bindNav();
     this.bindImport();
     this.bindHistory();
+    try { this._favIds = new Set((await DB.getFavorites()).map(f => f.questionId)); }
+    catch (e) { this._favIds = new Set(); }
     await this.renderSettings();
     await this.renderHome();
     // 桌面模式：显示「退出应用」按钮
@@ -59,6 +61,7 @@ const App = {
       practice: () => this.goPractice(),
       history: () => this.renderHistory(),
       wrong: () => this.renderWrong(),
+      favorites: () => this.renderFavorites(),
       achievements: () => this.renderAchievements(),
       settings: () => this.renderSettings()
     };
@@ -631,7 +634,9 @@ const App = {
   /* ---------- 断点续练：每个学科各存一份，切学科不互相覆盖 ---------- */
   sessionKeyFor(bank) {
     if (!bank) return '';
-    return bank.id === '__wrong__' ? 'wrong:' + (bank.folder || '') : 'bank:' + bank.id;
+    if (bank.id === '__wrong__') return 'wrong:' + (bank.folder || '');
+    if (bank.id === '__fav__') return 'fav:' + (bank.favBankId || '');
+    return 'bank:' + bank.id;
   },
 
   readSessionStore() {
@@ -728,6 +733,7 @@ const App = {
     if (!s) return;
     this.clearQuizSession(key);
     if (s.bank && s.bank.id === '__wrong__') return this.startWrongQuiz(s.bank.folder || '');
+    if (s.bank && s.bank.id === '__fav__') return this.startFavoriteQuiz(s.bank.favBankId || '');
     return this.startQuizById(s.bank.id);
   },
 
@@ -844,6 +850,7 @@ const App = {
           <div class="quiz-progress-txt">第 ${this.quizIndex+1} / ${this.quizQueue.length} 题</div>
           <div class="quiz-top-actions">
             <button class="btn" onclick="App.fixQuestion()" title="答案或解析对不上？点这里改">这题有误</button>
+            <button class="btn" id="favBtn" onclick="App.toggleFavorite()" title="收藏这道题，之后可以在「我的收藏」里反复练">${this._favIds && this._favIds.has(q.id) ? '★ 已收藏' : '☆ 收藏'}</button>
             <button class="btn" onclick="App.exitQuiz()">退出练习</button>
             <button class="btn" onclick="App.go('home')">回到今日</button>
           </div>
@@ -1174,12 +1181,133 @@ const App = {
     this.renderQuestion();
   },
 
-  /** 练习结束页的「再来一轮」：错题轮次再练错题，普通轮次重刷本题库 */
+  /** 练习结束页的「再来一轮」：错题/收藏轮次再练各自那组，普通轮次重刷本题库 */
   retryLastQuiz() {
     if (this.currentBank && this.currentBank.id === '__wrong__') {
       return this.startWrongQuiz(this.currentBank.folder || '');
     }
+    if (this.currentBank && this.currentBank.id === '__fav__') {
+      return this.startFavoriteQuiz(this.currentBank.favBankId || '');
+    }
     return this.startQuizById(this.currentBank.id);
+  },
+
+  /* ---------- 收藏题目 ---------- */
+  async toggleFavorite() {
+    const q = this.quizQueue[this.quizIndex];
+    if (!q) return;
+    if (!this._favIds) this._favIds = new Set((await DB.getFavorites()).map(f => f.questionId));
+    const btn = document.getElementById('favBtn');
+    if (this._favIds.has(q.id)) {
+      await DB.deleteFavorite(q.id);
+      this._favIds.delete(q.id);
+      if (btn) btn.textContent = '☆ 收藏';
+    } else {
+      const banks = await DB.getBanks();
+      const bank = banks.find(b => b.id === q.bankId);
+      await DB.putFavorite({
+        questionId: q.id,
+        bankId: q.bankId || '',
+        bankName: bank ? bank.name : '',
+        folder: bank ? (bank.folder || '') : '',
+        ts: Date.now()
+      });
+      this._favIds.add(q.id);
+      if (btn) btn.textContent = '★ 已收藏';
+    }
+  },
+
+  async renderFavorites() {
+    const el = document.getElementById('favoritesBody');
+    const favs = await DB.getFavorites();
+    if (!favs.length) {
+      el.innerHTML = `<div class="empty"><div class="empty-mark">☆</div>
+        <div class="empty-title">还没有收藏的题目</div>
+        <div>刷题时点一下「☆ 收藏」，这道题就会出现在这里。</div>
+        <div style="margin-top:18px"><button class="btn primary" onclick="App.go('practice')">去刷题</button></div></div>`;
+      return;
+    }
+    const [banks, all] = await Promise.all([DB.getBanks(), DB.allQuestions()]);
+    const bankMap = {}; banks.forEach(b => bankMap[b.id] = b);
+    const qMap = {}; all.forEach(q => qMap[q.id] = q);
+    const groups = {};
+    favs.forEach(f => {
+      const q = qMap[f.questionId];
+      if (!q) return; // 题已被删掉，收藏也失效
+      const key = f.bankId || '__none__';
+      if (!groups[key]) {
+        const b = bankMap[f.bankId];
+        groups[key] = {
+          key,
+          name: b ? b.name : (f.bankName || '已删除的题库'),
+          folder: b ? (b.folder || '') : (f.folder || ''),
+          items: []
+        };
+      }
+      groups[key].items.push(q);
+    });
+    const list = Object.values(groups).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+    const total = list.reduce((n, g) => n + g.items.length, 0);
+    el.innerHTML = `<p class="hint-text" style="margin-bottom:16px">共收藏 ${total} 道题，收藏的题目可以反复刷。</p>`
+      + list.map(g => `
+        <div class="fav-group">
+          <div class="fav-head">
+            <div><div class="fav-name">${this.esc(g.name)} <span class="fav-count">${g.items.length} 题</span></div></div>
+            <div class="fav-actions">
+              <button class="btn primary" onclick="App.startFavoriteQuiz('${this.esc(g.key)}')">刷这些 ↻</button>
+              <button class="btn" onclick="App.clearFavoriteGroup('${this.esc(g.key)}')">清空这组</button>
+            </div>
+          </div>
+          ${g.items.map(q => `
+            <div class="fav-row">
+              <div class="fav-stem">${this.esc(q.stem)}</div>
+              <button class="btn" onclick="App.unfavorite('${this.esc(q.id)}')">取消收藏</button>
+            </div>`).join('')}
+        </div>`).join('');
+  },
+
+  async unfavorite(questionId) {
+    await DB.deleteFavorite(questionId);
+    if (this._favIds) this._favIds.delete(questionId);
+    this.renderFavorites();
+  },
+
+  async clearFavoriteGroup(bankId) {
+    if (!confirm('确定清空这组收藏吗？题目本身不会被删除。')) return;
+    const favs = await DB.getFavorites();
+    for (const f of favs) {
+      if ((f.bankId || '__none__') === bankId) await DB.deleteFavorite(f.questionId);
+    }
+    if (this._favIds) {
+      favs.filter(f => (f.bankId || '__none__') === bankId).forEach(f => this._favIds.delete(f.questionId));
+    }
+    this.renderFavorites();
+  },
+
+  async startFavoriteQuiz(bankId) {
+    const favs = await DB.getFavorites();
+    const picked = favs.filter(f => !bankId || (f.bankId || '__none__') === bankId);
+    const all = await DB.allQuestions();
+    const qMap = {}; all.forEach(q => qMap[q.id] = q);
+    const questions = picked.map(f => qMap[f.questionId]).filter(Boolean).sort(() => Math.random() - 0.5);
+    if (!questions.length) { alert('这组收藏里没有可以刷的题了'); return; }
+    const banks = await DB.getBanks();
+    const b = banks.find(x => x.id === bankId);
+    this.currentBank = {
+      id: '__fav__',
+      favBankId: bankId || '',
+      name: bankId ? `收藏练习 · ${b ? b.name : '已删除的题库'}` : '收藏练习 · 全部',
+      folder: b ? (b.folder || '') : ''
+    };
+    this.quizQueue = questions;
+    this.quizIndex = 0;
+    this.quizProgressIndex = 0;
+    this.quizAnswers = [];
+    this.quizStartTs = Date.now();
+    this._sessionKey = this.sessionKeyFor(this.currentBank);
+    this.saveQuizSession();
+    this.switchView('practice');
+    this.renderQuestion();
   },
 
   /* ---------- 成就勋章 ---------- */
