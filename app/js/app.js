@@ -69,36 +69,47 @@ const App = {
     if (renders[view]) renders[view]();
   },
 
-  /** 每道题 / 每套题库做过几次（按答题记录累计，改答案/删题不影响） */
+  /** 每道题做过几次 + 每套题刷了几遍。
+   *  遍数口径：一套题完整做完一轮算 1 遍。取这套题里「做得最少的那道题」的作答次数，
+   *  个别题答错反复重做不会把整套题的遍数虚高。 */
   async refreshAttemptCounts() {
     try {
       const all = await DB.getAttempts();
-      const m = {}, byBank = {};
+      const m = {}, bankQuestions = {};
       all.forEach(a => {
-        if (a.questionId) m[a.questionId] = (m[a.questionId] || 0) + 1;
-        if (a.bankId) byBank[a.bankId] = (byBank[a.bankId] || 0) + 1;
+        if (!a.questionId) return;
+        m[a.questionId] = (m[a.questionId] || 0) + 1;
+        if (a.bankId) {
+          const qm = bankQuestions[a.bankId] || (bankQuestions[a.bankId] = {});
+          qm[a.questionId] = (qm[a.questionId] || 0) + 1;
+        }
       });
       this._attemptCounts = m;
-      this._bankAttemptCounts = byBank;
-    } catch (e) { this._attemptCounts = {}; this._bankAttemptCounts = {}; }
+      this._bankQuestions = bankQuestions;
+    } catch (e) { this._attemptCounts = {}; this._bankQuestions = {}; }
   },
 
   attemptCount(qid) {
     return (this._attemptCounts && this._attemptCounts[qid]) || 0;
   },
 
-  bankDoneCount(bankId) {
-    return (this._bankAttemptCounts && this._bankAttemptCounts[bankId]) || 0;
+  /** 这套题刷了几遍 = 做过的题里作答次数的最小值 */
+  bankRounds(bankId) {
+    const qm = this._bankQuestions && this._bankQuestions[bankId];
+    if (!qm) return 0;
+    const counts = Object.keys(qm).map(qid => qm[qid]);
+    if (!counts.length) return 0;
+    return Math.min.apply(null, counts);
   },
 
   doneBadge(qid) {
     const n = this.attemptCount(qid);
-    return n ? `<span class="done-count">已做 ${n} 次</span>` : '';
+    return n ? `<span class="done-count">做过 ${n} 遍</span>` : '';
   },
 
   bankDoneBadge(bankId) {
-    const n = this.bankDoneCount(bankId);
-    return n ? `<span class="done-count">已做 ${n} 次</span>` : '';
+    const n = this.bankRounds(bankId);
+    return n ? `<span class="done-count">刷了 ${n} 遍</span>` : '';
   },
 
   /* ---------- 首页 ---------- */
@@ -250,7 +261,7 @@ const App = {
       const items = groups[folder];
       const open = !(this._closedFolders && this._closedFolders.has(folder));
       const qCount = items.reduce((n, b) => n + (b.count || 0), 0);
-      const folderDone = items.reduce((n, b) => n + this.bankDoneCount(b.id), 0);
+      const folderRounds = Math.max.apply(null, [0].concat(items.map(b => this.bankRounds(b.id))));
       const cards = items.map(b => {
         const tags = (b.tags || []).slice(0, 6).map(t => `<span class="tag">${this.esc(t)}</span>`).join('');
         return `
@@ -272,7 +283,7 @@ const App = {
         <div class="folder-head" onclick="App.toggleFolder('${this.esc(folder)}')">
           <span class="folder-caret ${open ? '' : 'collapsed'}">▾</span>
           <span class="folder-name">📁 ${this.esc(folder)}</span>
-          <span class="folder-count">${items.length} 套题库 · ${qCount} 题${folderDone ? ' · 已做 ' + folderDone + ' 次' : ''}</span>
+          <span class="folder-count">${items.length} 套题库 · ${qCount} 题${folderRounds ? ' · 最多刷了 ' + folderRounds + ' 遍' : ''}</span>
           ${folder !== '未分类' ? `<button class="folder-rename" title="重命名文件夹" onclick="event.stopPropagation();App.renameFolder('${this.esc(folder)}')">✎</button>` : ''}
         </div>
         <div class="folder-body" style="display:${open ? 'block' : 'none'}">${cards}</div>
@@ -977,13 +988,14 @@ const App = {
     this._attemptCounts[q.id] = (this._attemptCounts[q.id] || 0) + 1;
     const doneBankId = q.bankId || (this.currentBank && this.currentBank.id);
     if (doneBankId) {
-      if (!this._bankAttemptCounts) this._bankAttemptCounts = {};
-      this._bankAttemptCounts[doneBankId] = (this._bankAttemptCounts[doneBankId] || 0) + 1;
+      if (!this._bankQuestions) this._bankQuestions = {};
+      const qm = this._bankQuestions[doneBankId] || (this._bankQuestions[doneBankId] = {});
+      qm[q.id] = (qm[q.id] || 0) + 1;
     }
     const numEl = document.querySelector('.quiz-q-num');
     if (numEl) {
       const old = numEl.querySelector('.done-count');
-      if (old) old.textContent = `已做 ${this._attemptCounts[q.id]} 次`;
+      if (old) old.textContent = `做过 ${this._attemptCounts[q.id]} 遍`;
       else numEl.insertAdjacentHTML('beforeend', this.doneBadge(q.id));
     }
     this.quizAnswers.push({ q, correct, userAnswer });
