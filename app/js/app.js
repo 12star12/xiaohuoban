@@ -18,6 +18,7 @@ const App = {
     this.bindHistory();
     try { this._favIds = new Set((await DB.getFavorites()).map(f => f.questionId)); }
     catch (e) { this._favIds = new Set(); }
+    await this.refreshAttemptCounts();
     await this.renderSettings();
     await this.renderHome();
     // 桌面模式：显示「退出应用」按钮
@@ -66,6 +67,25 @@ const App = {
       settings: () => this.renderSettings()
     };
     if (renders[view]) renders[view]();
+  },
+
+  /** 每道题做过几次（按答题记录累计，改答案/删题不影响） */
+  async refreshAttemptCounts() {
+    try {
+      const all = await DB.getAttempts();
+      const m = {};
+      all.forEach(a => { if (a.questionId) m[a.questionId] = (m[a.questionId] || 0) + 1; });
+      this._attemptCounts = m;
+    } catch (e) { this._attemptCounts = {}; }
+  },
+
+  attemptCount(qid) {
+    return (this._attemptCounts && this._attemptCounts[qid]) || 0;
+  },
+
+  doneBadge(qid) {
+    const n = this.attemptCount(qid);
+    return n ? `<span class="done-count">已做 ${n} 次</span>` : '';
   },
 
   /* ---------- 首页 ---------- */
@@ -856,7 +876,7 @@ const App = {
           </div>
         </div>
         <div class="quiz-q-card">
-          <div class="quiz-q-num">${kindLabel}　${(q.tags||[]).slice(0,3).map(t=>'<span class="tag">'+this.esc(t)+'</span>').join(' ')}</div>
+          <div class="quiz-q-num">${kindLabel}　${this.doneBadge(q.id)}${(q.tags||[]).slice(0,3).map(t=>'<span class="tag">'+this.esc(t)+'</span>').join(' ')}</div>
           <div class="quiz-q-stem">${this.esc(q.stem)}</div>
           <div id="answerZone">${answerUI}</div>
           <div id="feedbackZone"></div>
@@ -936,6 +956,14 @@ const App = {
       questionId: q.id, bankId: q.bankId || this.currentBank.id,
       userAnswer, correct, durationSec: duration
     });
+    if (!this._attemptCounts) this._attemptCounts = {};
+    this._attemptCounts[q.id] = (this._attemptCounts[q.id] || 0) + 1;
+    const numEl = document.querySelector('.quiz-q-num');
+    if (numEl) {
+      const old = numEl.querySelector('.done-count');
+      if (old) old.textContent = `已做 ${this._attemptCounts[q.id]} 次`;
+      else numEl.insertAdjacentHTML('beforeend', this.doneBadge(q.id));
+    }
     this.quizAnswers.push({ q, correct, userAnswer });
     // 答完就记下进度：即使此刻关掉窗口，下次也从下一题接着做
     this.quizProgressIndex = this.quizIndex + 1;
@@ -1069,6 +1097,7 @@ const App = {
 
   /* ---------- 错题本 ---------- */
   async renderWrong() {
+    await this.refreshAttemptCounts();
     const list = await Achievements.wrongBook();
     const el = document.getElementById('wrongBody');
     if (!list.length) {
@@ -1113,7 +1142,7 @@ const App = {
         const solved = !isLeft(item);
         const bankName = (bankMap[q.bankId] || {}).name || '未知题库';
         return `<div class="preview-q">
-          <div class="preview-q-type">${q.type === 'choice' ? '选择题' : '题目'} · ${this.esc(bankName)}${solved
+          <div class="preview-q-type">${q.type === 'choice' ? '选择题' : '题目'} · ${this.esc(bankName)} · ${this.doneBadge(q.id)}${solved
             ? ' · <span style="color:var(--green)">已攻克</span>'
             : ' · <span style="color:var(--clay)">仍待攻克</span>'}</div>
           <div class="preview-q-stem">${this.esc(q.stem)}</div>
@@ -1219,6 +1248,7 @@ const App = {
 
   async renderFavorites() {
     const el = document.getElementById('favoritesBody');
+    await this.refreshAttemptCounts();
     const favs = await DB.getFavorites();
     if (!favs.length) {
       el.innerHTML = `<div class="empty"><div class="empty-mark">☆</div>
@@ -1260,7 +1290,7 @@ const App = {
           </div>
           ${g.items.map(q => `
             <div class="fav-row">
-              <div class="fav-stem">${this.esc(q.stem)}</div>
+              <div class="fav-stem">${this.esc(q.stem)} ${this.doneBadge(q.id)}</div>
               <button class="btn" onclick="App.unfavorite('${this.esc(q.id)}')">取消收藏</button>
             </div>`).join('')}
         </div>`).join('');
