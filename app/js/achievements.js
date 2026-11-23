@@ -246,6 +246,9 @@
       const times = await DB.allStudyTime();
       const questions = await DB.allQuestions();
       const qMap = {}; questions.forEach(q => qMap[q.id] = q);
+      let banks = [];
+      try { banks = await DB.getBanks(); } catch (e) {}
+      const bankMap = {}; banks.forEach(b => bankMap[b.id] = b);
       const timeMap = {}; times.forEach(t => timeMap[t.date] = t.seconds);
 
       const byDay = {};
@@ -265,14 +268,33 @@
         const right = info.attempts.filter(a => a.correct).length;
         const tags = new Set();
         const wrongTags = new Set();
+        // 按题库聚合当天练了什么：题库名 + 做了几道 + 对几道
+        const bankStat = {};
         info.attempts.forEach(a => {
           const q = qMap[a.questionId];
-          if (!q) return;
-          (q.tags || []).forEach(tag => {
-            tags.add(tag);
-            if (!a.correct) wrongTags.add(tag);
-          });
+          if (q) {
+            (q.tags || []).forEach(tag => {
+              tags.add(tag);
+              if (!a.correct) wrongTags.add(tag);
+            });
+          }
+          const bid = a.bankId || (q && q.bankId) || '__unknown__';
+          const st = bankStat[bid] || (bankStat[bid] = { id: bid, name: '', qids: new Set(), right: 0, attempts: 0 });
+          st.qids.add(a.questionId);
+          st.attempts++;
+          if (a.correct) st.right++;
         });
+        const banksToday = Object.keys(bankStat).map(bid => {
+          const st = bankStat[bid];
+          const b = bankMap[bid];
+          return {
+            id: bid,
+            name: b ? b.name : (bid === '__wrong__' ? '错题本重练' : bid === '__fav__' ? '收藏题练习' : '已删除的题库'),
+            count: st.qids.size,
+            attempts: st.attempts,
+            correct: st.right
+          };
+        }).sort((a, b) => b.count - a.count);
         result.push({
           date: key,
           studySeconds: timeMap[key] || 0,
@@ -281,7 +303,8 @@
           correct: right,
           accuracy: info.attempts.length ? Math.round(right / info.attempts.length * 100) : null,
           tags: Array.from(tags),
-          wrongTags: Array.from(wrongTags)
+          wrongTags: Array.from(wrongTags),
+          banks: banksToday
         });
       }
       return result;

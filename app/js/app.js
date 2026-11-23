@@ -1210,18 +1210,31 @@ const App = {
       el.innerHTML = `<div class="empty"><div class="empty-mark">◷</div><div class="empty-title">还没有学习记录</div><div>开始刷题后，这里会慢慢记下你走过的路。</div></div>`;
       return;
     }
-    const body = rows.slice().reverse().map(r => {
+    const body = rows.slice().reverse().map((r, i) => {
       const min = Math.floor(r.studySeconds / 60);
       const barW = Math.round(min / maxMin * 70);
       const acc = r.accuracy === null ? '—' : r.accuracy + '%';
       const d = new Date(r.date);
       const wd = ['日','一','二','三','四','五','六'][d.getDay()];
+      const banks = r.banks || [];
+      // 当天练了哪些题库，做成可展开明细
+      const detail = banks.length
+        ? `<div class="hist-detail" id="histDetail${i}" style="display:none">
+            ${banks.map(b => `<div class="hist-bank-row">
+              <span class="hist-bank-name">📘 ${this.esc(b.name)}</span>
+              <span class="hist-bank-num">${b.count} 题 · 对 ${b.correct} 题</span>
+            </div>`).join('')}
+          </div>`
+        : '';
+      const toggle = banks.length
+        ? `<button class="hist-toggle" onclick="App.toggleHistDetail(${i})">${banks.length} 套题 ▾</button>`
+        : '';
       return `<tr>
         <td>${d.getMonth()+1}/${d.getDate()} <span style="color:var(--ink-3)">周${wd}</span></td>
         <td><span class="hist-bar" style="width:${barW}px"></span>${min} 分</td>
         <td>${r.completed}</td>
         <td>${acc}</td>
-        <td>${r.tags.slice(0,4).map(t=>'<span class="tag">'+this.esc(t)+'</span>').join(' ')}${r.wrongTags.length ? ' <span style="color:var(--clay);font-size:11px">错题:'+r.wrongTags.slice(0,2).map(this.esc).join('/')+'</span>' : ''}</td>
+        <td>${toggle}${r.tags.slice(0,4).map(t=>'<span class="tag">'+this.esc(t)+'</span>').join(' ')}${r.wrongTags.length ? ' <span style="color:var(--clay);font-size:11px">错题:'+r.wrongTags.slice(0,2).map(this.esc).join('/')+'</span>' : ''}${detail}</td>
       </tr>`;
     }).join('');
     el.innerHTML = `
@@ -1229,7 +1242,13 @@ const App = {
         <thead><tr><th>日期</th><th>学习时长</th><th>完成题数</th><th>正确率</th><th>知识点 / 错题</th></tr></thead>
         <tbody>${body}</tbody>
       </table>
-      <p class="hint-text">最近 ${this.historyDays} 天 · 共学习 ${active.length} 天 · 累计 ${Achievements.formatDuration(rows.reduce((s,r)=>s+r.studySeconds,0))}</p>`;
+      <p class="hint-text">最近 ${this.historyDays} 天 · 共学习 ${active.length} 天 · 累计 ${Achievements.formatDuration(rows.reduce((s,r)=>s+r.studySeconds,0))}。点「N 套题」看每天练了什么。</p>`;
+  },
+
+  toggleHistDetail(i) {
+    const box = document.getElementById('histDetail' + i);
+    if (!box) return;
+    box.style.display = box.style.display === 'none' ? 'block' : 'none';
   },
 
   /* ---------- 错题本 ---------- */
