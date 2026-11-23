@@ -120,17 +120,16 @@ const App = {
     const greet = hour < 6 ? '夜深了' : hour < 11 ? '早上好' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : '晚上好';
     document.getElementById('greeting').textContent = greet + '！';
 
-    // 今日学习时长与对比
+    // 今日学习时长：按今天的表现给表扬，不和昨天/前天比——每天自己有进展就值得夸
     document.getElementById('studyMin').textContent = this.fmtMin(s.studySeconds);
-    const hist = await Achievements.history(2);
-    const yesterday = hist.length >= 2 ? hist[hist.length - 2].studySeconds : 0;
     const todayMin = Math.floor(s.studySeconds / 60);
-    const yestMin = Math.floor(yesterday / 60);
-    let cmp = '今天也在慢慢积累呀 🌿';
-    if (todayMin > yestMin && yestMin > 0) cmp = `比昨天多 ${todayMin - yestMin} 分钟 ↑`;
-    else if (todayMin < yestMin) cmp = `比昨天少 ${yestMin - todayMin} 分钟，没关系~`;
-    else if (todayMin === yestMin && todayMin > 0) cmp = '和昨天一样，稳稳的 🌿';
-    document.getElementById('studyCompare').textContent = cmp;
+    let praise;
+    if (todayMin === 0) praise = '今天还没开始，做一道题就出发 🌱';
+    else if (todayMin < 20) praise = `今天已经学了 ${todayMin} 分钟，起步就很棒 👏`;
+    else if (todayMin < 60) praise = `${todayMin} 分钟的专注，值得夸一句 ✨`;
+    else if (todayMin < 120) praise = `今天学了 ${todayMin} 分钟，状态真不错 🔥`;
+    else praise = `${todayMin} 分钟，今天这份认真太亮眼了 🌟`;
+    document.getElementById('studyCompare').textContent = praise;
 
     // 四项指标
     document.getElementById('statsGrid').innerHTML = `
