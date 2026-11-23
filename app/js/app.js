@@ -1419,15 +1419,21 @@ const App = {
     rec = rec || { maxQ: 0, maxMinutes: 0, maxAccuracy: 0 };
     // 每日成就是终身的：历史任意一天达标就点亮，所以进度一律按「历史最高」显示，
     // 不能写成「今天 X / N」，否则会让人误以为必须今天刷够。
-    const dayLabel = s => s ? String(s).slice(5).replace('-', '/') + ' 达成' : '已达成';
+    const hit = rec.hitDays || {};
+    // 点亮后显示「累计达标 N 天」——成就值得反复完成，每天做到都记一笔。
+    // 累计天数按历史记录算，今天达标后立即 +1（renderAchievements 会重算 rec）。
+    const hitNote = (key, best) => {
+      const n = hit[key] || 0;
+      return n > 0 ? `累计达标 ${n} 天 · ${best}` : best;
+    };
     const qMax = rec.maxQ || 0;
     const minMax = rec.maxMinutes || 0;
     const accMax = rec.maxAccuracy || 0;
-    const qDesc = `单日最高 ${qMax} 题 · ${dayLabel(rec.maxQDate)}`;
+    const qBest = `单日最高 ${qMax} 题`;
     const qNow = n => `历史最高 ${qMax} / ${n} 题`;
-    const minDesc = `单日最高 ${minMax} 分钟 · ${dayLabel(rec.maxMinDate)}`;
+    const minBest = `最高 ${minMax} 分钟`;
     const minNow = n => `历史最高 ${minMax} / ${n} 分钟`;
-    const accDesc = `单日最高 ${accMax}% · ${dayLabel(rec.maxAccDate)}`;
+    const accBest = `单日最高 ${accMax}%`;
 
     const lifetime = [
       { name: '启程之芽', icon: '🌱', desc: '开始了，就是最好的一步', how: '学习满 1 天解锁', got: days >= 1 },
@@ -1441,13 +1447,13 @@ const App = {
     ];
 
     const daily = [
-      { name: '今日二十题', icon: '🥾', desc: '一天二十道，值得夸一句', how: '单日完成 20 题解锁', got: qMax >= 20, now: qNow(20), gotNote: qDesc },
-      { name: '半百', icon: '🔥', desc: '一天五十道，很扎实', how: '单日完成 50 题解锁', got: qMax >= 50, now: qNow(50), gotNote: qDesc },
-      { name: '百题日', icon: '💯', desc: '一天一百道，这一天值得记住', how: '单日完成 100 题解锁', got: qMax >= 100, now: qNow(100), gotNote: qDesc },
-      { name: '两百题', icon: '🚀', desc: '一天两百道，状态在线', how: '单日完成 200 题解锁', got: qMax >= 200, now: qNow(200), gotNote: qDesc },
-      { name: '一小时专注', icon: '⏳', desc: '单日学习满一小时', how: '单日学习 60 分钟解锁', got: minMax >= 60, now: minNow(60), gotNote: minDesc },
-      { name: '两小时深耕', icon: '🕰️', desc: '单日学习满两小时', how: '单日学习 120 分钟解锁', got: minMax >= 120, now: minNow(120), gotNote: minDesc },
-      { name: '神准日', icon: '🎯', desc: '单日正确率 90% 以上', how: '单日正确率 ≥ 90%（当天 ≥ 20 题）解锁', got: accMax >= 90, now: `历史最高 ${accMax}%`, gotNote: accDesc }
+      { name: '今日二十题', icon: '🥾', desc: '一天二十道，值得夸一句', how: '单日完成 20 题解锁', got: qMax >= 20, now: qNow(20), gotNote: hitNote('q20', qBest) },
+      { name: '半百', icon: '🔥', desc: '一天五十道，很扎实', how: '单日完成 50 题解锁', got: qMax >= 50, now: qNow(50), gotNote: hitNote('q50', qBest) },
+      { name: '百题日', icon: '💯', desc: '一天一百道，这一天值得记住', how: '单日完成 100 题解锁', got: qMax >= 100, now: qNow(100), gotNote: hitNote('q100', qBest) },
+      { name: '两百题', icon: '🚀', desc: '一天两百道，状态在线', how: '单日完成 200 题解锁', got: qMax >= 200, now: qNow(200), gotNote: hitNote('q200', qBest) },
+      { name: '一小时专注', icon: '⏳', desc: '单日学习满一小时', how: '单日学习 60 分钟解锁', got: minMax >= 60, now: minNow(60), gotNote: hitNote('min60', minBest) },
+      { name: '两小时深耕', icon: '🕰️', desc: '单日学习满两小时', how: '单日学习 120 分钟解锁', got: minMax >= 120, now: minNow(120), gotNote: hitNote('min120', minBest) },
+      { name: '神准日', icon: '🎯', desc: '单日正确率 90% 以上', how: '单日正确率 ≥ 90%（当天 ≥ 20 题）解锁', got: accMax >= 90, now: `历史最高 ${accMax}%`, gotNote: hitNote('acc90', accBest) }
     ];
 
     return { lifetime, daily };

@@ -144,14 +144,21 @@
 
       let maxQ = 0, maxQDate = '';
       let maxAcc = 0, maxAccDate = '';
+      // 每个每日成就「达标过几天」——点亮的成就能继续攒天数，反复完成也有意义
+      const hit = { q20: 0, q50: 0, q100: 0, q200: 0, min60: 0, min120: 0, acc90: 0 };
       Object.keys(byDay).forEach(k => {
         const r = byDay[k];
         const q = Object.keys(r.ids).length;
         if (q > maxQ) { maxQ = q; maxQDate = k; }
+        if (q >= 20) hit.q20++;
+        if (q >= 50) hit.q50++;
+        if (q >= 100) hit.q100++;
+        if (q >= 200) hit.q200++;
         // 题量太少的准确率不算纪录，避免 3 题全对拿 100%
         if (r.total >= 20) {
           const acc = Math.round(r.right / r.total * 100);
           if (acc > maxAcc) { maxAcc = acc; maxAccDate = k; }
+          if (acc >= 90) hit.acc90++;
         }
       });
 
@@ -160,9 +167,11 @@
       times.forEach(t => {
         const m = Math.floor((t.seconds || 0) / 60);
         if (m > maxMin) { maxMin = m; maxMinDate = t.date; }
+        if (m >= 60) hit.min60++;
+        if (m >= 120) hit.min120++;
       });
 
-      return { maxQ, maxQDate, maxMinutes: maxMin, maxMinDate, maxAccuracy: maxAcc, maxAccDate };
+      return { maxQ, maxQDate, maxMinutes: maxMin, maxMinDate, maxAccuracy: maxAcc, maxAccDate, hitDays: hit };
     },
 
     /** 判断并触发阶段性鼓励。根据最近表现分类，返回鼓励文案或 null。 */
