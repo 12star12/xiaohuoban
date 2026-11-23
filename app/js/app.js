@@ -638,6 +638,7 @@ const App = {
 
   /* ---------- 刷题 ---------- */
   async renderPracticeSelect() {
+    this.showTutor(false);
     await this.refreshAttemptCounts();
     const banks = await DB.getBanks();
     const el = document.getElementById('practiceBody');
@@ -912,6 +913,108 @@ const App = {
       </div>`;
     this._selected = null;
     this._qStart = Date.now();
+    this.showTutor(true);
+  },
+
+  /* ---------- 边学边问：刷题时的 AI 辅导面板 ---------- */
+  showTutor(show) {
+    const panel = document.getElementById('tutorPanel');
+    if (!panel) return;
+    panel.style.display = show ? '' : 'none';
+    if (show) this.resetTutorForQuestion();
+  },
+
+  /** 换题时重置对话，避免把上一题的上下文带到新题 */
+  resetTutorForQuestion() {
+    const q = this.quizQueue && this.quizQueue[this.quizIndex];
+    const qid = q ? q.id : '';
+    if (this._tutorQid === qid) return;
+    this._tutorQid = qid;
+    this._tutorChat = [];
+    const box = document.getElementById('tutorChat');
+    if (box) box.innerHTML = `<div class="tutor-tip">对这道题有疑问，就在这儿问吧。<br>比如「这题考什么」「为什么选这个」——不用怕问得太基础。</div>`;
+    const quick = document.getElementById('tutorQuick');
+    if (quick) quick.style.display = '';
+  },
+
+  clearTutor() {
+    this._tutorQid = null;
+    this._tutorChat = [];
+    this.resetTutorForQuestion();
+  },
+
+  askQuick(text) {
+    const input = document.getElementById('tutorInput');
+    if (input) input.value = text;
+    this.askAI();
+  },
+
+  tutorBubble(role, text) {
+    const div = document.createElement('div');
+    div.className = 'tutor-msg ' + role;
+    div.innerHTML = `<div class="tutor-bubble">${role === 'ai' ? this.esc(text).replace(/\n/g, '<br>') : this.esc(text)}</div>`;
+    return div;
+  },
+
+  async askAI() {
+    const input = document.getElementById('tutorInput');
+    const box = document.getElementById('tutorChat');
+    const send = document.getElementById('tutorSend');
+    if (!input || !box) return;
+    const question = (input.value || '').trim();
+    if (!question) { alert('先输入你的问题'); return; }
+    const q = this.quizQueue && this.quizQueue[this.quizIndex];
+    if (!q) { alert('当前没有题目'); return; }
+
+    // 学生是否已经作答：本轮答题记录里有这道题就算答过
+    const answered = (this.quizAnswers || []).some(a => a.q && a.q.id === q.id);
+    const cfg = await LLM.getConfig();
+    const err = LLM.validate(cfg);
+    if (err) { alert(err); return; }
+
+    input.value = '';
+    box.appendChild(this.tutorBubble('me', question));
+    const wait = document.createElement('div');
+    wait.className = 'tutor-msg ai';
+    wait.innerHTML = '<div class="tutor-bubble tutor-wait">AI 正在想…</div>';
+    box.appendChild(wait);
+    box.scrollTop = box.scrollHeight;
+    if (send) { send.disabled = true; }
+
+    // 构造带当前题目的上下文；未作答时不含答案，避免 AI 剧透
+    const lines = [
+      '【当前题目】',
+      `题型：${q.type === 'choice' ? '选择题' : q.type === 'blank' ? '填空题' : '简答/计算题'}`,
+      `题干：${q.stem}`,
+    ];
+    if (q.options && q.options.length) lines.push('选项：' + q.options.join('  '));
+    lines.push(`学生是否已作答：${answered ? '是' : '否（还没作答，不要告诉他正确答案）'}`);
+    if (answered) {
+      lines.push(`正确答案：${q.answer || '（无）'}`);
+      if (q.explanation) lines.push(`参考答案解析：${q.explanation}`);
+    }
+    if (this._tutorChat && this._tutorChat.length) {
+      lines.push('', '【之前的对话】');
+      this._tutorChat.forEach(x => lines.push(`${x.role === 'me' ? '学生' : '老师'}：${x.text}`));
+    }
+    lines.push('', '【学生现在的问题】', question);
+
+    try {
+      const reply = await LLM.chat(cfg, lines.join('\n'), LLM.TUTOR_PROMPT);
+      this._tutorChat = (this._tutorChat || []).concat([
+        { role: 'me', text: question }, { role: 'ai', text: reply }
+      ]);
+      wait.remove();
+      box.appendChild(this.tutorBubble('ai', reply));
+      const quick = document.getElementById('tutorQuick');
+      if (quick) quick.style.display = 'none';
+    } catch (e) {
+      wait.remove();
+      box.appendChild(this.tutorBubble('ai', '抱歉，没连上模型：' + (e.message || '请稍后重试')));
+    } finally {
+      if (send) send.disabled = false;
+      box.scrollTop = box.scrollHeight;
+    }
   },
 
   /** 多选题：answer 是多个字母（如 "ABD"）时按多选作答 */
@@ -1069,6 +1172,7 @@ const App = {
 
   renderQuizDone() {
     this.clearQuizSession();
+    this.showTutor(false);
     const total = this.quizAnswers.length;
     const right = this.quizAnswers.filter(a => a.correct).length;
     const pct = total ? Math.round(right / total * 100) : 0;

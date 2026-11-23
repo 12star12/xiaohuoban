@@ -168,7 +168,29 @@
       <header class="page-head">
         <div><h1>开始练习</h1><p class="page-sub" id="practiceSub">选择题库开始。</p></div>
       </header>
-      <div id="practiceBody"></div>
+      <div class="practice-layout">
+        <div class="practice-main" id="practiceBody"></div>
+        <!-- 边学边问：只在做题时显示，自动带上当前题目 -->
+        <aside class="tutor-panel" id="tutorPanel" style="display:none">
+          <div class="tutor-head">
+            <div class="tutor-title">💬 问 AI <span class="tutor-sub">边学边问</span></div>
+            <button class="tutor-clear" onclick="App.clearTutor()" title="清空这段对话">清空</button>
+          </div>
+          <div class="tutor-chat" id="tutorChat">
+            <div class="tutor-tip">对这道题有疑问，就在这儿问吧。<br>比如「这题考什么」「为什么选这个」——不用怕问得太基础。</div>
+          </div>
+          <div class="tutor-quick" id="tutorQuick">
+            <button onclick="App.askQuick('这题考的是什么知识点？')">这题考什么</button>
+            <button onclick="App.askQuick('给我讲讲解题思路')">讲讲思路</button>
+            <button onclick="App.askQuick('其他选项为什么不对？')">选项辨析</button>
+          </div>
+          <div class="tutor-input-row">
+            <textarea id="tutorInput" class="tutor-input" rows="2" placeholder="输入你的问题…" onkeydown="if(event.ctrlKey&&event.key==='Enter'){App.askAI();event.preventDefault()}"></textarea>
+            <button class="btn primary tutor-send" id="tutorSend" onclick="App.askAI()">问</button>
+          </div>
+          <div class="tutor-foot">Ctrl + Enter 发送 · 答案只保存在这次对话里</div>
+        </aside>
+      </div>
     </section>
 
     <!-- 学习历史 -->
@@ -264,9 +286,9 @@
 
 <script src="js/data-encouragements.js"></script>
 <script src="js/data-quotes.js"></script>
-<script src="js/db.js?v=20261123b"></script>
-<script src="js/llm.js?v=20261123b"></script>
-<script src="js/achievements.js?v=20261123b"></script>
-<script src="js/app.js?v=20261123b"></script>
+<script src="js/db.js?v=20261123c"></script>
+<script src="js/llm.js?v=20261123c"></script>
+<script src="js/achievements.js?v=20261123c"></script>
+<script src="js/app.js?v=20261123c"></script>
 </body>
 </html>
