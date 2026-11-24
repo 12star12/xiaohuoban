@@ -542,10 +542,79 @@ ${batch.text}
   },
 
   /** 结构化资料 → 题库对象。已有现成题目时只整理；否则按章节分批出题。 */
+  /** 导入前规整 Markdown：把挤在一行的选项、散落的答案表整理成模型容易识别的形式。
+   *  只改排版不改内容，返回 { text, fixes }。 */
+  normalizeMarkdown(input) {
+    const raw = String(input || '');
+    let t = raw;
+    const fixes = [];
+    const add = (msg, n) => { if (n > 0) fixes.push(`${msg} ${n} 处`); };
+
+    // 1) 去掉 markdown 噪音：加粗/斜体标记、行尾双空格、分隔线
+    const beforeMd = t;
+    t = t.replace(/\*\*(.+?)\*\*/g, '$1').replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '$1')
+         .replace(/[ \t]+$/gm, '').replace(/^\s*[-*_]{3,}\s*$/gm, '');
+    add('清理格式标记', (beforeMd.length - t.length) > 0 ? 1 : 0);
+
+    // 2) 一行里挤了多个选项：「A. 甲 B. 乙 C. 丙 D. 丁」→ 每个选项单独一行
+    const optRe = /([A-DＡ-Ｄ])\s*[.、．)）]\s*/g;
+    let splitLines = 0;
+    t = t.split(/\r?\n/).map(line => {
+      const matches = [];
+      let m;
+      optRe.lastIndex = 0;
+      while ((m = optRe.exec(line)) !== null) matches.push({ i: m.index, letter: m[1], len: m[0].length });
+      if (matches.length < 2) return line;
+      // 必须有 A 且按顺序出现，才当选项行拆开（避免拆到正文里的 "A. B." 缩写）
+      const letters = matches.map(x => x.letter.toUpperCase().replace('Ａ','A').replace('Ｂ','B').replace('Ｃ','C').replace('Ｄ','D'));
+      if (letters[0] !== 'A') return line;
+      const ordered = letters.every((L, k) => k === 0 || L === String.fromCharCode(65 + k));
+      if (!ordered) return line;
+      const head = line.slice(0, matches[0].i).trim();
+      const parts = matches.map((x, k) => {
+        const end = k + 1 < matches.length ? matches[k + 1].i : line.length;
+        return `${x.letter}. ${line.slice(x.i + x.len, end).trim()}`.replace(/\s{2,}/g, ' ').trim();
+      }).filter(Boolean);
+      splitLines++;
+      return (head ? head + '\n' : '') + parts.join('\n');
+    }).join('\n');
+    add('拆开挤在一行的选项', splitLines);
+
+    // 3) 表格选项：| A | 内容 |  →  A. 内容
+    let tableRows = 0;
+    t = t.split(/\r?\n/).map(line => {
+      const mm = /^\s*\|\s*([A-DＡ-Ｄ])\s*\|\s*([^|]+?)\s*\|\s*$/.exec(line);
+      if (!mm) return line;
+      tableRows++;
+      return `${mm[1]}. ${mm[2].trim()}`;
+    }).join('\n');
+    add('表格选项转成选项行', tableRows);
+
+    // 4) 答案表集中：把「1.B 2.C …」或「1、B」拆成逐行，方便和题号对应
+    let ansRows = 0;
+    t = t.split(/\r?\n/).map(line => {
+      const s = line.trim();
+      if (!/^(答案|参考答案)/.test(s) && !/^\d{1,3}\s*[.、．)）:：]\s*[A-D]{1,4}(\s|$)/.test(s)) return line;
+      const pairs = s.replace(/^(答案|参考答案)\s*[:：]?\s*/, '')
+        .match(/\d{1,3}\s*[.、．)）:：]\s*[A-D]{1,4}/g);
+      if (!pairs || pairs.length < 2) return line;
+      ansRows++;
+      return '答案表：\n' + pairs.map(p => p.replace(/\s+/g, ' ')).join('\n');
+    }).join('\n');
+    add('拆开集中答案表', ansRows);
+
+    return { text: t, fixes };
+  },
+
   async structure(text, opts, onProgress) {
     if (typeof opts === 'function') { onProgress = opts; opts = {}; }
     opts = opts || {};
     const perChapter = Math.max(1, Math.min(20, parseInt(opts.perChapter, 10) || 5));
+
+    // 导入前规整 Markdown，提高选项/答案的解析率（只改排版不改内容）
+    const norm = this.normalizeMarkdown(text);
+    text = norm.text;
+    if (norm.fixes.length && onProgress) onProgress('已优化资料格式：' + norm.fixes.join('、'));
 
     const cfg = await this.getConfig();
     const err = this.validate(cfg);
@@ -555,7 +624,11 @@ ${batch.text}
     const mode = opts.mode === 'extract' || opts.mode === 'generate'
       ? opts.mode
       : this.detect(text).mode;
-    if (mode === 'extract') return this.extractSet(text, cfg, onProgress);
+    if (mode === 'extract') {
+      const result = await this.extractSet(text, cfg, onProgress);
+      result.fixes = norm.fixes;
+      return result;
+    }
 
     let segs = this.splitByChapter(text, 7000);
     if (!segs.length) segs = [{ title: '', text: text.trim() }];
@@ -598,7 +671,8 @@ ${batch.text}
 
     return {
       title, summary, questions, mode: 'generate',
-      segments: segs.length, batches: batches.length, skipped: plan.skippedChapters
+      segments: segs.length, batches: batches.length, skipped: plan.skippedChapters,
+      fixes: norm.fixes
     };
   },
 

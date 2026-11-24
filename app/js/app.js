@@ -264,17 +264,19 @@ const App = {
       const cards = items.map(b => {
         const tags = (b.tags || []).slice(0, 6).map(t => `<span class="tag">${this.esc(t)}</span>`).join('');
         return `
-        <div class="bank-item">
+        <div class="bank-item" id="bankItem_${b.id}">
           <div>
-            <div class="bank-title">${this.esc(b.name)} ${this.bankDoneBadge(b.id)}</div>
+            <div class="bank-title"><span class="bank-title-link" onclick="App.toggleBankQuestions('${b.id}')" title="点击看这套题的题目">${this.esc(b.name)}</span> ${this.bankDoneBadge(b.id)}</div>
             <div class="bank-meta">${b.count} 道题 · ${new Date(b.createdAt).toLocaleDateString('zh-CN')}${b.summary ? ' · ' + this.esc(b.summary) : ''}</div>
             <div class="bank-tags">${tags}</div>
           </div>
           <div class="bank-actions">
+            <button class="btn" onclick="App.toggleBankQuestions('${b.id}')">看题目</button>
             <button class="btn primary" onclick="App.startQuizById('${b.id}')">开始刷题</button>
             <button class="btn" onclick="App.renameBankFolder('${b.id}')">移动</button>
             <button class="btn" onclick="App.deleteBank('${b.id}')">删除</button>
           </div>
+          <div class="bank-q-list" id="bankQ_${b.id}" style="display:none"></div>
         </div>`;
       }).join('');
       return `
@@ -295,6 +297,36 @@ const App = {
     if (this._closedFolders.has(name)) this._closedFolders.delete(name);
     else this._closedFolders.add(name);
     this.renderLibrary();
+  },
+
+  /** 展开/收起某套题库的题目列表（含答案与解析） */
+  async toggleBankQuestions(bankId) {
+    const box = document.getElementById('bankQ_' + bankId);
+    if (!box) return;
+    if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    box.innerHTML = '<div class="bank-q-loading">正在读取题目…</div>';
+    try {
+      const qs = await DB.getQuestions(bankId);
+      if (!qs.length) { box.innerHTML = '<div class="bank-q-loading">这套题库暂时没有题目。</div>'; return; }
+      const letters = q => (String(q.answer || '').toUpperCase().match(/[A-D]/g) || []);
+      box.innerHTML = qs.map((q, i) => {
+        const type = q.type === 'choice' ? (letters(q).length > 1 ? '多选' : '单选')
+          : q.type === 'blank' ? '填空' : '简答';
+        const opts = (q.options || []).length ? `<div class="pv-opts">${q.options.map(o => {
+          const k = String(o).trim().charAt(0).toUpperCase();
+          return `<div class="pv-opt ${letters(q).indexOf(k) >= 0 ? 'hit' : ''}">${this.esc(o)}</div>`;
+        }).join('')}</div>` : '';
+        return `<div class="preview-q">
+          <div class="preview-q-type">${i + 1}. ${type}${(q.tags || []).slice(0, 3).map(t => '<span class="tag">' + this.esc(t) + '</span>').join(' ')}</div>
+          <div class="preview-q-stem">${this.esc(q.stem)}</div>
+          ${opts}
+          <div class="pv-answer">答案 <b>${this.esc(q.answer)}</b>${q.explanation ? `<span class="pv-exp">${this.esc(q.explanation)}</span>` : ''}</div>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      box.innerHTML = '<div class="bank-q-loading">读取失败：' + this.esc(e.message) + '</div>';
+    }
   },
 
   async renameFolder(oldName) {
@@ -566,6 +598,7 @@ const App = {
           <div>
             <div class="panel-title" style="margin-bottom:2px">预览：${this.esc(result.title)}（共 ${result.questions.length} 题${result.mode === 'extract' ? ' · 原题整理' : ''}）</div>
             <div class="hint-text" style="margin-top:0">${this.esc(result.summary)}</div>
+            ${result.fixes && result.fixes.length ? `<div class="pv-fix">✓ 导入前已优化资料格式：${this.esc(result.fixes.join('、'))}</div>` : ''}
             ${inferred ? `<div class="pv-warn" style="margin-top:8px">有 ${inferred} 道原文没给答案，是模型自己判断的，建议保存前核对一眼。</div>` : ''}
             ${suspect ? `<div class="pv-warn" style="margin-top:8px">有 ${suspect} 道题被系统标为「可能有问题」（答案与解析对不上），保存前建议逐题看一眼，或直接改答案 / 删掉。</div>` : ''}
           </div>
