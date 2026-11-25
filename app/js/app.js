@@ -273,6 +273,7 @@ const App = {
           <div class="bank-actions">
             <button class="btn" onclick="App.toggleBankQuestions('${b.id}')">看题目</button>
             <button class="btn primary" onclick="App.startQuizById('${b.id}')">开始刷题</button>
+            <button class="btn" onclick="App.renameBank('${b.id}')" title="给这套题（这一节）改名">改名</button>
             <button class="btn" onclick="App.renameBankFolder('${b.id}')">移动</button>
             <button class="btn" onclick="App.deleteBank('${b.id}')">删除</button>
           </div>
@@ -340,6 +341,18 @@ const App = {
       }
     }
     this.renderLibrary();
+  },
+
+  /** 给一套题（一节）改名 */
+  async renameBank(bankId) {
+    const banks = await DB.getBanks();
+    const bank = banks.find(b => b.id === bankId);
+    if (!bank) return;
+    const name = prompt('给这套题起个名字：', bank.name);
+    if (!name || !name.trim() || name.trim() === bank.name) return;
+    bank.name = name.trim();
+    await DB.putBank(bank);
+    await this.renderLibrary();
   },
 
   async renameBankFolder(bankId) {
