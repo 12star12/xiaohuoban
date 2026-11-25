@@ -520,6 +520,24 @@ button { cursor: pointer; }
 .quiz-q-card { background: var(--paper); border: 1px solid var(--line); border-radius: 20px; padding: 32px 36px; box-shadow: var(--shadow); }
 .quiz-q-num { font-size: 11.5px; color: var(--gold); margin-bottom: 14px; font-weight: 600; }
 .quiz-q-stem { font-size: 18px; font-weight: 600; line-height: 1.9; margin-bottom: 24px; }
+/* 题干里的代码：独立成块、等宽、不折行，跟中文清爽分开 */
+.stem-code {
+  display: block; margin: 10px 0 14px; padding: 13px 16px;
+  background: #f7f1e8; border: 1px solid var(--line); border-left: 3px solid var(--orange);
+  border-radius: 10px; overflow-x: auto; white-space: pre;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px; line-height: 1.7; color: #4a3a30; font-weight: 500;
+}
+.stem-code code { font-family: inherit; }
+.stem-inline {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  background: var(--orange-soft); color: #b25f2e; padding: 1px 5px; border-radius: 4px;
+  font-size: .9em; font-weight: 600;
+}
+.code-kw { color: #b5562e; font-weight: 700; }
+.code-str { color: #5d8a5f; }
+.code-num { color: #9a6db5; }
+.preview-q-stem .stem-code { font-size: 12px; margin: 7px 0; }
 .quiz-options { display: flex; flex-direction: column; gap: 10px; }
 .quiz-option {
   border: 1.5px solid var(--line); background: #fffdf9; border-radius: 12px;

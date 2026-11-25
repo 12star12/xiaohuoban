@@ -319,7 +319,7 @@ const App = {
         }).join('')}</div>` : '';
         return `<div class="preview-q">
           <div class="preview-q-type">${i + 1}. ${type}${(q.tags || []).slice(0, 3).map(t => '<span class="tag">' + this.esc(t) + '</span>').join(' ')}</div>
-          <div class="preview-q-stem">${this.esc(q.stem)}</div>
+          <div class="preview-q-stem">${this.formatStem(q.stem)}</div>
           ${opts}
           <div class="pv-answer">答案 <b>${this.esc(q.answer)}</b>${q.explanation ? `<span class="pv-exp">${this.esc(q.explanation)}</span>` : ''}</div>
         </div>`;
@@ -582,7 +582,7 @@ const App = {
       }).join('')}</div>` : '';
       return `<div class="preview-q">
         <div class="preview-q-type">${i+1}. ${kind}　${flags}${(q.tags||[]).map(t=>'<span class="tag">'+this.esc(t)+'</span>').join(' ')}</div>
-        <div class="preview-q-stem">${this.esc(q.stem)}</div>
+        <div class="preview-q-stem">${this.formatStem(q.stem)}</div>
         ${opts}
         <div class="pv-answer">答案 <b>${this.esc(q.answer)}</b>${q.explanation ? `<span class="pv-exp">${this.esc(q.explanation)}</span>` : ''}</div>
         ${q._warn ? `<div class="pv-warn">⚠ ${this.esc(q._warn)}</div>` : ''}
@@ -938,7 +938,7 @@ const App = {
         </div>
         <div class="quiz-q-card">
           <div class="quiz-q-num">${kindLabel}　${this.doneBadge(q.id)}${(q.tags||[]).slice(0,3).map(t=>'<span class="tag">'+this.esc(t)+'</span>').join(' ')}</div>
-          <div class="quiz-q-stem">${this.esc(q.stem)}</div>
+          <div class="quiz-q-stem">${this.formatStem(q.stem)}</div>
           <div id="answerZone">${answerUI}</div>
           <div id="feedbackZone"></div>
         </div>
@@ -1334,7 +1334,7 @@ const App = {
           <div class="preview-q-type">${q.type === 'choice' ? '选择题' : '题目'} · ${this.esc(bankName)} · ${this.doneBadge(q.id)}${solved
             ? ' · <span style="color:var(--green)">已攻克</span>'
             : ' · <span style="color:var(--clay)">仍待攻克</span>'}</div>
-          <div class="preview-q-stem">${this.esc(q.stem)}</div>
+          <div class="preview-q-stem">${this.formatStem(q.stem)}</div>
           <div class="answer-box ok" style="margin-top:10px;padding:10px 14px;font-size:12.5px">正确答案：${this.esc(q.answer)}</div>
         </div>`;
       }).join('');
@@ -1710,6 +1710,55 @@ const App = {
   esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  },
+
+  /** 题干里的代码单独排版：等宽字体、浅色代码块、不折行、关键字高亮。
+   *  识别反引号 `code` 与常见代码形态（函数调用、花括号语句、赋值/比较表达式）。 */
+  formatStem(stem) {
+    const raw = String(stem == null ? '' : stem);
+    // 占位符用固定前缀 + 递增序号，内容和序号一一对应，避免编号错位
+    const slots = {};
+    let seq = 0;
+    const hold = code => {
+      const key = '\u0001' + (seq++) + '\u0002';
+      slots[key] = code;
+      return key;
+    };
+
+    let s = raw;
+    // 1) 反引号代码优先（含换行的必然是块）
+    s = s.replace(/`([^`]+)`/g, (m, c) => hold(c));
+    // 2) 花括号代码块：int Fib(n) { ... } / if (x) { ... }
+    s = s.replace(/[A-Za-z_][\w<>*&:.\s]*\([^)]*\)\s*\{[^{}]{2,400}\}/g, m => hold(m));
+    // 3) 纯花括号代码：{ ...; ... }
+    s = s.replace(/\{[^{}]*[;=][^{}]{1,300}\}/g, m => hold(m));
+    // 4) Python 定义：def f(x): return ...
+    s = s.replace(/\b(def\s+\w+\s*\([^)]*\)\s*:\s*[^，。；;]{2,120})/g, m => hold(m.trim()));
+    // 5) 独立函数调用：f(3) / max(a,b)（跳过已占位区域）
+    s = s.replace(/\b([A-Za-z_]\w*\([^()]{0,80}\))/g, (m, code) => hold(code));
+
+    // 先整体转义；占位符字符 \u0001\u0002 不受 esc 影响
+    let out = this.esc(s);
+    Object.keys(slots).forEach(key => {
+      const code = slots[key];
+      const isBlock = /[\n{}]/.test(code) || (code.length > 32 && /[;=]/.test(code));
+      const inner = this.highlightCode(this.esc(code));
+      const html = isBlock
+        ? `<pre class="stem-code"><code>${inner}</code></pre>`
+        : `<code class="stem-inline">${inner}</code>`;
+      out = out.split(key).join(html);
+    });
+    // 清理万一残留的占位符
+    return out.replace(/[\u0001\u0002]/g, '');
+  },
+
+  /** 简单语法高亮：关键字 / 数字 / 字符串（输入必须是已转义文本） */
+  highlightCode(escaped) {
+    const kw = /\b(int|long|short|char|float|double|void|bool|boolean|string|str|var|let|const|return|if|else|elif|for|while|do|break|continue|new|class|def|function|public|private|static|null|None|True|False|true|false|import|from|print)\b/g;
+    return escaped
+      .replace(kw, '<span class="code-kw">$1</span>')
+      .replace(/(&quot;[^&]{0,120}?&quot;|'[^']{0,120}?')/g, '<span class="code-str">$1</span>')
+      .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="code-num">$1</span>');
   }
 };
 
