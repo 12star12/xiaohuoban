@@ -599,6 +599,7 @@ const App = {
             <div class="panel-title" style="margin-bottom:2px">预览：${this.esc(result.title)}（共 ${result.questions.length} 题${result.mode === 'extract' ? ' · 原题整理' : ''}）</div>
             <div class="hint-text" style="margin-top:0">${this.esc(result.summary)}</div>
             ${result.fixes && result.fixes.length ? `<div class="pv-fix">✓ 导入前已优化资料格式：${this.esc(result.fixes.join('、'))}</div>` : ''}
+            ${result.restored ? `<div class="pv-fix">✓ 已从原文还原 ${result.restored} 道题被模型省略的解析</div>` : ''}
             ${inferred ? `<div class="pv-warn" style="margin-top:8px">有 ${inferred} 道原文没给答案，是模型自己判断的，建议保存前核对一眼。</div>` : ''}
             ${suspect ? `<div class="pv-warn" style="margin-top:8px">有 ${suspect} 道题被系统标为「可能有问题」（答案与解析对不上），保存前建议逐题看一眼，或直接改答案 / 删掉。</div>` : ''}
           </div>

@@ -140,7 +140,9 @@ const EXTRACT_PROMPT = `你是题库整理助手。用户给你的资料**已经
 【答案与解析】
 - 原文给了答案（如"答案：B"、括号里的字母、题末答案表）→ 照抄，answerSource 填 "source"。
 - 原文**没给答案** → 你自己判断最可能的正确答案，answer 填字母，answerSource 填 "inferred"，explanation 写一两句依据（引原文条款或原理），方便用户核对。
-- 原文有解析 → 保留原意，不要重写成长篇。
+- **原文有解析 → 必须逐字照抄进 explanation，一字不改、不省略、不概括、不翻译**。解析是用户自己整理好的学习成果，不是可以改写的素材。禁止用「见解析」「略」「同上」代替，禁止只留一半，禁止把它改写成你自己的话。
+- 只有原文确实没有任何解析时，才自己写一两句依据，并把 answerSource 填 "inferred"。
+- 如果某道题原文有解析但你的 explanation 是空的、或者明显比原文短很多，这是错误，必须回去把原文解析完整抄进来。
 - 判断题原文写成"（ ）""对/错""√/×"的 → 转成两个选项："A. 正确" "B. 错误"，答案是 A 或 B。
 - 多选题原文标注"多选"或答案有多个字母 → answer 写成字母组合，如 "ABD"，不要拆成单选。
 - 没有选项的简答/名词解释 → type="calculation"，answer 写参考答案要点，不要改写成选择题。
@@ -450,8 +452,9 @@ ${batch.text}
     let cur = null;
     blocks.forEach(b => {
       const over = cur && (cur.count >= maxQuestions || (cur.text.length + b.text.length + 2) > maxChars);
-      if (!cur || over) { cur = { text: '', count: 0, nos: [] }; batches.push(cur); }
+      if (!cur || over) { cur = { text: '', count: 0, nos: [], blocks: [] }; batches.push(cur); }
       cur.nos.push(b.no);
+      cur.blocks.push(b);
       cur.text += (cur.text ? '\n\n' : '') + b.text;
       cur.count++;
     });
@@ -461,8 +464,65 @@ ${batch.text}
         ? `第 ${b.nos[0]}–${b.nos[b.nos.length - 1]} 题`
         : `第 ${b.nos[0]} 题`,
       text: b.text,
-      count: b.count
+      count: b.count,
+      blocks: b.blocks   // 保留每题原文块，用于还原被模型吞掉的解析
     }));
+  },
+
+  /** 把原文解析还原到模型输出里。模型常把解析省略或压缩，这里按题号/题干对应补回。
+   *  返回 { questions, count }。 */
+  restoreExplanations(questions, blocks) {
+    if (!questions || !questions.length || !blocks || !blocks.length) return { questions, count: 0 };
+
+    // 题干归一化：去编号、标点、空白，用来和原文块比对
+    const norm = s => String(s || '').replace(/\s+/g, '').replace(/[，。；、？?！!：:（）()【】"“”'']/g, '').slice(0, 40);
+    let count = 0;
+
+    questions.forEach((q, i) => {
+      const out = String(q.explanation || '').trim();
+      const qn = norm(q.stem);
+
+      // 找对应的原文块：优先题干前 40 字匹配，其次按顺序对位
+      let block = null;
+      if (qn) {
+        block = blocks.find(b => {
+          const bn = norm(b.text);
+          return bn.indexOf(qn) >= 0 || qn.indexOf(bn.slice(0, 40)) >= 0;
+        });
+      }
+      if (!block && i < blocks.length) block = blocks[i];
+      if (!block) return;
+
+      const original = this.extractOriginalExplanation(block.text);
+      if (!original) return;
+
+      // 三种情况需要补回：输出为空 / 明显比原文短很多 / 用了「略、见解析」等敷衍词
+      const shallow = /^(略|见解析|同上|无|见原文|参考原文)$/.test(out);
+      const shrunk = out && out.length < original.length * 0.6;
+      if (!out || shallow || shrunk) {
+        q.explanation = original;
+        q.explanationRestored = true;
+        count++;
+      }
+    });
+    return { questions, count };
+  },
+
+  /** 从某道题的原文块里抽出解析句（原文解析是用户的资产，不能被模型吞掉） */
+  extractOriginalExplanation(blockText) {
+    const lines = String(blockText || '').split(/\r?\n/);
+    const found = [];
+    lines.forEach(raw => {
+      let ln = raw.trim().replace(/^[#>*\s]+/, '').replace(/\*+$/, '').trim();
+      if (!ln) return;
+      // 行首带「解析/说明/理由/详解/答案解析」的整行
+      let m = /^(?:参考)?(?:解析|详解|说明|理由|答案解析)\s*[:：]?\s*(.+)$/.exec(ln);
+      if (m && m[1].trim().length >= 2) { found.push(m[1].trim()); return; }
+      // 行内「……（解析：xxx）」
+      const im = /[（(](?:解析|说明|理由)\s*[:：]?\s*([^）)]{2,300})[）)]/.exec(ln);
+      if (im) found.push(im[1].trim());
+    });
+    return found.join('\n');
   },
 
   /** 整理模式每次请求的指令 + 原文 */
@@ -496,6 +556,7 @@ ${batch.text}
   /** 现成题目：只整理，不出新题 */
   async extractSet(text, cfg, onProgress) {
     const MAX_BATCHES = 8;
+    this._restoredExplanations = 0;
     let batches = this.splitByQuestion(text, 10, 6000);
     const totalQ = batches.reduce((n, b) => n + (b.count || 0), 0);
     const skipped = Math.max(0, batches.length - MAX_BATCHES);
@@ -521,7 +582,12 @@ ${batch.text}
           '你是 JSON 格式修正助手，只输出合法 JSON。');
         parsed = this.parseJSON(raw);
       }
+      // 还原被模型吞掉的原文解析：按题号顺序把原文解析对回模型输出
+      const blocks = batches[i].blocks || [];
+      const restored = this.restoreExplanations(parsed.questions || [], blocks);
+      parsed.questions = restored.questions;
       results.push(this.normalize(parsed));
+      restored.count && (this._restoredExplanations = (this._restoredExplanations || 0) + restored.count);
     }
 
     const questions = this.mergeQuestions(results);
@@ -537,7 +603,8 @@ ${batch.text}
     return {
       title, summary, questions,
       mode: 'extract', inferred, totalQ,
-      segments: batches.length, batches: batches.length, skipped
+      segments: batches.length, batches: batches.length, skipped,
+      restored: this._restoredExplanations || 0
     };
   },
 
