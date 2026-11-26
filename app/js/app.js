@@ -151,8 +151,8 @@ const App = {
       `🏅 我的积分 <b>${pts.total}</b> <span class="today-only">今天 +${pts.today}</span> <span class="strip-arrow">去看看 ›</span>`;
     const rv = await Achievements.reviewStats();
     document.getElementById('reviewStrip').innerHTML = rv.due > 0
-      ? `🧠 今天有 <b>${rv.due}</b> 道题该复习了 <span class="strip-arrow">现在复习 →</span>`
-      : `🧠 复习任务都跟上了 <span class="strip-goal">${rv.active ? `下次复习还有 ${rv.active} 道排队` : '错题答错后会自动安排复习'}</span>`;
+      ? `🧠 今天有什么知识可以复习 <span class="today-only">${rv.due} 道在等你</span> <span class="strip-arrow">去看看 →</span>`
+      : `🧠 今天有什么知识可以复习 <span class="strip-goal">${rv.active ? `暂时都跟上了，下次还有 ${rv.active} 道排队` : '错题答错后会自动安排复习'}</span>`;
     document.getElementById('reviewStrip').style.cursor = rv.due > 0 ? 'pointer' : 'default';
 
     // 成长足迹折线图（近 7 天完成题数）
@@ -728,8 +728,8 @@ const App = {
     const reviewCard = rv.due > 0 ? `
       <div class="review-card">
         <div>
-          <div class="review-card-title">🧠 今天该复习 ${rv.due} 道题</div>
-          <div class="hint-text" style="margin-top:4px">按遗忘曲线安排，趁快忘了再记一遍最牢 · 另有 ${rv.active - rv.due} 道在排队</div>
+          <div class="review-card-title">🧠 今天有什么知识可以复习</div>
+          <div class="hint-text" style="margin-top:4px">${rv.due} 道题按遗忘曲线排到了今天，趁快忘了再记一遍最牢 · 另有 ${rv.active - rv.due} 道在排队</div>
         </div>
         <button class="btn primary" onclick="App.startReviewQuiz()">开始复习 →</button>
       </div>` : '';
