@@ -6,6 +6,8 @@
   const IDLE_LIMIT = 60 * 1000;   // 60 秒无操作视为停止学习
   const TICK_MS = 1000;           // 每秒检查一次
   const ENCOURAGE_STEP = 10;      // 每完成 10 题触发一次鼓励（可在设置里改）
+  const REVIEW_STEPS = [1, 2, 4, 7, 15, 30];  // 艾宾浩斯复习间隔（天）
+  const DAY_MS = 24 * 60 * 60 * 1000;
 
   function today() {
     const d = new Date();
@@ -69,6 +71,88 @@
         assessment: a.assessment || '',
         durationSec: a.durationSec || 0
       });
+    },
+
+    /** ---------------- 小积分：答一次攒一点，看得见的积累 ---------------- */
+    async addPoints(n, reason) {
+      const amount = Math.max(0, Math.round(n || 0));
+      if (!amount) return this.getPoints();
+      const p = await this.getPoints();
+      const sameDay = p.date === today();
+      const next = {
+        total: (p.total || 0) + amount,
+        today: (sameDay ? (p.today || 0) : 0) + amount,  // 跨天今日清零，总分继续累积
+        date: today(),
+        byReason: Object.assign({}, p.byReason || {})
+      };
+      next.byReason[reason || 'other'] = (next.byReason[reason || 'other'] || 0) + amount;
+      await DB.setSetting('points', next);
+      this.emit('points', next);
+      return next;
+    },
+
+    async getPoints() {
+      const p = await DB.getSetting('points', null);
+      if (!p || typeof p !== 'object') return { total: 0, today: 0, date: today(), byReason: {} };
+      if (p.date !== today()) p.today = 0;   // 跨天今日清零，总分保留
+      return p;
+    },
+
+    /** ---------------- 间隔复习：答错入库，答对逐级拉长间隔 ---------------- */
+    /** 每道题答完后调用。答错→进复习表（stage 归零、明天再来）；答对→若在复习轮次里则推进阶段。 */
+    async updateReview(questionId, bankId, correct, inReviewQuiz) {
+      if (!questionId) return null;
+      let r = await DB.getReview(questionId);
+      if (correct) {
+        if (!r) return null;                 // 从没错过，不需要复习调度
+        if (!inReviewQuiz) return r;         // 普通轮次答对不改进度，等到了日子再复习
+        const nextStage = (r.stage || 0) + 1;
+        if (nextStage >= REVIEW_STEPS.length) {
+          r.graduated = true;
+          r.stage = REVIEW_STEPS.length;
+          r.dueAt = 0;
+          r.graduatedAt = Date.now();
+        } else {
+          r.stage = nextStage;
+          r.dueAt = Date.now() + REVIEW_STEPS[nextStage] * DAY_MS;
+          r.graduated = false;
+        }
+        r.lastCorrect = true;
+        r.lastAt = Date.now();
+      } else {
+        if (!r) {
+          r = { questionId, bankId: bankId || '', stage: 0, dueAt: Date.now() + DAY_MS,
+                lastCorrect: false, lastAt: Date.now(), graduated: false, createdAt: Date.now() };
+        } else {
+          r.stage = 0;                       // 答错回退到第一阶段
+          r.dueAt = Date.now() + DAY_MS;
+          r.lastCorrect = false;
+          r.lastAt = Date.now();
+          r.graduated = false;
+        }
+      }
+      await DB.putReview(r);
+      return r;
+    },
+
+    /** 今天到期该复习的题（含逾期） */
+    async dueReviews() {
+      const all = await DB.allReviews();
+      const now = Date.now();
+      return all.filter(r => !r.graduated && r.dueAt && r.dueAt <= now)
+        .sort((a, b) => a.dueAt - b.dueAt);
+    },
+
+    /** 复习概况：今天到期数 / 在册数 / 已毕业数 */
+    async reviewStats() {
+      const all = await DB.allReviews();
+      const now = Date.now();
+      return {
+        due: all.filter(r => !r.graduated && r.dueAt && r.dueAt <= now).length,
+        active: all.filter(r => !r.graduated).length,
+        graduated: all.filter(r => r.graduated).length,
+        total: all.length
+      };
     },
 
     /** 今日统计 */

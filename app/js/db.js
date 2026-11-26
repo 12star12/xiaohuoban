@@ -1,9 +1,9 @@
 /* 本地数据库层：IndexedDB 封装。
-   六张表：banks 题库集 / questions 题目 / attempts 答题记录 / favorites 收藏 / studyTime 有效学习时长 / settings 设置。
+   七张表：banks 题库集 / questions 题目 / attempts 答题记录 / favorites 收藏 / reviews 间隔复习调度 / studyTime 有效学习时长 / settings 设置。
    所有数据本地持久化，关闭程序不丢失。 */
 (function () {
   const DB_NAME = 'review-quiz-db';
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
   let dbPromise = null;
 
   function openDB() {
@@ -33,6 +33,11 @@
           const s = db.createObjectStore('favorites', { keyPath: 'questionId' });
           s.createIndex('bankId', 'bankId');
           s.createIndex('ts', 'ts');
+        }
+        if (!db.objectStoreNames.contains('reviews')) {
+          const s = db.createObjectStore('reviews', { keyPath: 'questionId' });
+          s.createIndex('dueAt', 'dueAt');
+          s.createIndex('bankId', 'bankId');
         }
         if (!db.objectStoreNames.contains('settings')) {
           db.createObjectStore('settings', { keyPath: 'key' });
@@ -78,11 +83,15 @@
     },
     async deleteBank(bankId) {
       const db = await openDB();
-      const t = db.transaction(['banks', 'questions', 'attempts', 'favorites'], 'readwrite');
+      const t = db.transaction(['banks', 'questions', 'attempts', 'favorites', 'reviews'], 'readwrite');
       t.objectStore('banks').delete(bankId);
       const qIdx = t.objectStore('questions').index('bankId');
       const aIdx = t.objectStore('attempts').index('bankId');
       const fIdx = t.objectStore('favorites').index('bankId');
+      const rIdx = t.objectStore('reviews').index('bankId');
+      rIdx.getAllKeys(IDBKeyRange.only(bankId)).onsuccess = (e) => {
+        e.target.result.forEach(k => t.objectStore('reviews').delete(k));
+      };
       fIdx.getAllKeys(IDBKeyRange.only(bankId)).onsuccess = (e) => {
         e.target.result.forEach(k => t.objectStore('favorites').delete(k));
       };
@@ -146,6 +155,20 @@
       return tx('favorites', 'readonly', s => reqToPromise(s.getAll()));
     },
 
+    // 间隔复习调度：每道题一条，dueAt 到期时间戳，stage 当前阶段
+    async putReview(r) {
+      return tx('reviews', 'readwrite', s => s.put(r));
+    },
+    async getReview(questionId) {
+      return tx('reviews', 'readonly', s => reqToPromise(s.get(questionId)));
+    },
+    async allReviews() {
+      return tx('reviews', 'readonly', s => reqToPromise(s.getAll()));
+    },
+    async deleteReview(questionId) {
+      return tx('reviews', 'readwrite', s => s.delete(questionId));
+    },
+
     // 有效学习时长（按日期累加秒数）
     async addStudyTime(date, seconds) {
       const db = await openDB();
@@ -182,8 +205,8 @@
     async clearAll() {
       const db = await openDB();
       return new Promise((resolve, reject) => {
-        const t = db.transaction(['banks', 'questions', 'attempts', 'favorites', 'studyTime'], 'readwrite');
-        ['banks', 'questions', 'attempts', 'favorites', 'studyTime'].forEach(n => t.objectStore(n).clear());
+        const t = db.transaction(['banks', 'questions', 'attempts', 'favorites', 'reviews', 'studyTime'], 'readwrite');
+        ['banks', 'questions', 'attempts', 'favorites', 'reviews', 'studyTime'].forEach(n => t.objectStore(n).clear());
         t.oncomplete = resolve;
         t.onerror = () => reject(t.error);
       });

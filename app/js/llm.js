@@ -122,6 +122,19 @@ const TUTOR_PROMPT = `你是陪学生刷题的辅导老师，学生正在做一�
 - 不复述题干；学生问什么就答什么，不主动扯远。
 - 知识点讲错了要纠正，但语气温和。`;
 
+/* 变式题：针对一道错题，换情境换问法再出几道同考点的题 */
+const VARIANT_PROMPT = `你是出题老师。学生做错了一道题，你要围绕**同一知识点**出几道变式题，帮他真正吃透，而不是死记原题答案。
+
+【规则】
+- 出的题必须考同一个核心知识点，但要换情境、换问法、换数字或换个切入角度，让学生不能靠背原题答案蒙对。
+- 题型和原题保持一致（原题是选择题就出选择题，简答就出简答）。选择题必须 4 个选项、只有一个正确答案（除非原题是多选）。
+- 每道题都要给出正确答案和简短解析（解析讲清为什么，不超过 80 字）。
+- 难度和原题相当或略低，不要出偏题怪题。
+- 用中文，题干必须是完整可回答的问题，不要把标题当题干。
+
+【输出】只输出纯 JSON 对象，不要任何解释文字，格式：
+{"questions":[{"type":"choice","stem":"题干","options":["A. ...","B. ...","C. ...","D. ..."],"answer":"B","explanation":"解析","tags":["知识点标签"]}]}`;
+
 /* 资料来源本身已经是一套题（试卷、练习册、ima 生成的题库）时用的提示词。
    与 SYSTEM_PROMPT 的根本区别：这里**禁止出题**，只做整理和补答案。 */
 const EXTRACT_PROMPT = `你是题库整理助手。用户给你的资料**已经是一套现成的题目**（可能是试卷、课后练习、或别人生成的题库），你的任务是把它原样整理成结构化 JSON，而不是出题。
@@ -182,6 +195,7 @@ const LLM = {
   SYSTEM_PROMPT,
   EXTRACT_PROMPT,
   TUTOR_PROMPT,
+  VARIANT_PROMPT,
   _proxyAvailable: null,
 
   /** 探测是否运行在桌面版（launcher.pyw 提供 /__proxy 与 /api/llm） */
@@ -279,6 +293,35 @@ const LLM = {
     const content = data.choices?.[0]?.message?.content;
     if (!content) throw new Error('模型返回内容为空，请重试');
     return content;
+  },
+
+  /** 针对一道题生成同知识点的变式题（不写入题库，仅用于本次练习） */
+  async generateVariants(q, count) {
+    const cfg = await this.getConfig();
+    const err = this.validate(cfg);
+    if (err) throw new Error(err);
+    count = Math.max(1, Math.min(5, parseInt(count, 10) || 3));
+    const src = `原题：\n题干：${q.stem || ''}\n${q.type === 'choice' && q.options ? '选项：' + q.options.join(' ') + '\n' : ''}正确答案：${q.answer || ''}\n${q.explanation ? '解析：' + q.explanation : ''}\n知识点标签：${(q.tags || []).join('、')}\n\n请围绕同一知识点出 ${count} 道变式题。`;
+    let raw = await this.chat(cfg, src, VARIANT_PROMPT);
+    raw = String(raw).replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    let parsed;
+    try { parsed = JSON.parse(raw); }
+    catch (e) {
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('变式题生成失败：模型没有返回有效内容，请重试');
+      parsed = JSON.parse(m[0]);
+    }
+    const list = Array.isArray(parsed.questions) ? parsed.questions : [];
+    const bankId = q.bankId || '__variant__';
+    const normalized = this.normalize({ questions: list.slice(0, count) }).questions;
+    const questions = normalized.map((x, i) => Object.assign(x, {
+      id: 'v_' + (q.id || 'q') + '_' + Date.now() + '_' + i,
+      bankId: '__variant__',
+      sourceQuestionId: q.id,
+      tags: x.tags && x.tags.length ? x.tags : (q.tags || [])
+    })).filter(x => x.stem && x.answer);
+    if (!questions.length) throw new Error('变式题生成失败：没有拿到可用的题目，请重试');
+    return { questions, source: bankId };
   },
 
   /* ---------- 按章节切分 ---------- */

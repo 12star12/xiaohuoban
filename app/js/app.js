@@ -145,6 +145,16 @@ const App = {
       <div class="goal-track"><div class="goal-fill" style="width:${s.goalPct}%"></div></div>
     `;
 
+    // 小积分与今日待复习（都做成可点的入口）
+    const pts = await Achievements.getPoints();
+    document.getElementById('pointsStrip').innerHTML =
+      `🏅 我的积分 <b>${pts.total}</b> <span class="today-only">今天 +${pts.today}</span> <span class="strip-arrow">去看看 ›</span>`;
+    const rv = await Achievements.reviewStats();
+    document.getElementById('reviewStrip').innerHTML = rv.due > 0
+      ? `🧠 今天有 <b>${rv.due}</b> 道题该复习了 <span class="strip-arrow">现在复习 →</span>`
+      : `🧠 复习任务都跟上了 <span class="strip-goal">${rv.active ? `下次复习还有 ${rv.active} 道排队` : '错题答错后会自动安排复习'}</span>`;
+    document.getElementById('reviewStrip').style.cursor = rv.due > 0 ? 'pointer' : 'default';
+
     // 成长足迹折线图（近 7 天完成题数）
     const week = await Achievements.history(7);
     this.renderGrowthChart(week);
@@ -713,17 +723,94 @@ const App = {
           <button class="btn" onclick="App.discardQuizSession(decodeURIComponent('${jk(x.key)}'))">不续了</button>
         </div>
       </div>`).join('');
-    el.innerHTML = (resumeCards ? `<div class="resume-list">${resumeCards}</div>` : '')
-      + `<div class="quiz-select"${sessions.length ? ' style="margin-top:14px"' : ''}>${banks.map(b => {
-        const x = byKey[this.sessionKeyFor(b)];
-        const act = x ? `App.resumeQuiz(decodeURIComponent('${jk(x.key)}'))` : `App.startQuizById('${b.id}')`;
-        const done = this.bankDoneBadge(b.id);
-        const hint = x ? `第 ${Math.min(x.index + 1, x.questions.length)} / ${x.questions.length} 题 · 点击继续` : `${b.count} 道题 · 点击开始`;
-        return `<button class="quiz-card" onclick="${act}">
-          <div class="quiz-card-title">${this.esc(b.name)} ${done}</div>
-          <div class="hint-text" style="margin-top:4px">${hint}</div>
-        </button>`;
-      }).join('')}</div>`;
+    // 今日待复习卡：艾宾浩斯到期的错题优先安排
+    const rv = await Achievements.reviewStats();
+    const reviewCard = rv.due > 0 ? `
+      <div class="review-card">
+        <div>
+          <div class="review-card-title">🧠 今天该复习 ${rv.due} 道题</div>
+          <div class="hint-text" style="margin-top:4px">按遗忘曲线安排，趁快忘了再记一遍最牢 · 另有 ${rv.active - rv.due} 道在排队</div>
+        </div>
+        <button class="btn primary" onclick="App.startReviewQuiz()">开始复习 →</button>
+      </div>` : '';
+
+    // 交错练习开关：把各题库打散混着刷，更接近真实考试
+    const mixOn = !!this.interleaved;
+    const mixBar = `
+      <div class="mix-bar">
+        <div>
+          <div class="mix-title">🔄 交错混合练习</div>
+          <div class="hint-text">把 ${banks.length} 套题库打乱混在一起刷，比一科一科刷更抗遗忘</div>
+        </div>
+        <button class="toggle ${mixOn ? 'on' : ''}" onclick="App.toggleInterleave()" aria-pressed="${mixOn}"><span></span></button>
+      </div>`;
+
+    const cards = mixOn
+      ? `<div class="quiz-select"><button class="quiz-card mix-card" onclick="App.startMixedQuiz()">
+          <div class="quiz-card-title">开始混合练习 ${this.bankDoneBadge('__mix__')}</div>
+          <div class="hint-text" style="margin-top:4px">从 ${banks.length} 套题库抽取 · 点击开始</div>
+        </button></div>`
+      : `<div class="quiz-select">${banks.map(b => {
+          const x = byKey[this.sessionKeyFor(b)];
+          const act = x ? `App.resumeQuiz(decodeURIComponent('${jk(x.key)}'))` : `App.startQuizById('${b.id}')`;
+          const done = this.bankDoneBadge(b.id);
+          const hint = x ? `第 ${Math.min(x.index + 1, x.questions.length)} / ${x.questions.length} 题 · 点击继续` : `${b.count} 道题 · 点击开始`;
+          return `<button class="quiz-card" onclick="${act}">
+            <div class="quiz-card-title">${this.esc(b.name)} ${done}</div>
+            <div class="hint-text" style="margin-top:4px">${hint}</div>
+          </button>`;
+        }).join('')}</div>`;
+
+    el.innerHTML = reviewCard + (resumeCards ? `<div class="resume-list" style="margin-top:14px">${resumeCards}</div>` : '')
+      + `<div style="margin-top:14px">${mixBar}</div>`
+      + `<div style="margin-top:14px">${cards}</div>`;
+  },
+
+  toggleInterleave() {
+    this.interleaved = !this.interleaved;
+    this.renderPracticeSelect();
+  },
+
+  /** 交错混合：从所有题库抽题打散成一整轮 */
+  async startMixedQuiz() {
+    const banks = await DB.getBanks();
+    if (!banks.length) return;
+    const groups = await Promise.all(banks.map(b => DB.getQuestions(b.id)));
+    let questions = [];
+    groups.forEach(qs => { questions = questions.concat(qs); });
+    if (!questions.length) { alert('题库里还没有题目'); return; }
+    questions = questions.slice().sort(() => Math.random() - 0.5);
+    this.currentBank = { id: '__mix__', name: '交错混合练习', folder: '' };
+    this.quizQueue = questions;
+    this.quizIndex = 0;
+    this.quizProgressIndex = 0;
+    this.quizAnswers = [];
+    this.quizStartTs = Date.now();
+    this._sessionKey = this.sessionKeyFor(this.currentBank);
+    this.saveQuizSession();
+    this.switchView('practice');
+    this.renderQuestion();
+  },
+
+  /** 间隔复习：只刷今天到期（含逾期）的错题 */
+  async startReviewQuiz() {
+    const due = await Achievements.dueReviews();
+    if (!due.length) { alert('今天没有到期的复习题，继续保持就好～'); return; }
+    const all = await DB.allQuestions();
+    const qMap = {}; all.forEach(q => qMap[q.id] = q);
+    let questions = due.map(r => qMap[r.questionId]).filter(Boolean);
+    if (!questions.length) { alert('这些复习题的原题库已被删除，没有可复习的内容'); return; }
+    questions = questions.slice().sort(() => Math.random() - 0.5);
+    this.currentBank = { id: '__review__', name: `今日复习 · ${questions.length} 道`, folder: '' };
+    this.quizQueue = questions;
+    this.quizIndex = 0;
+    this.quizProgressIndex = 0;
+    this.quizAnswers = [];
+    this.quizStartTs = Date.now();
+    this._sessionKey = this.sessionKeyFor(this.currentBank);
+    this.saveQuizSession();
+    this.switchView('practice');
+    this.renderQuestion();
   },
 
   /* ---------- 断点续练：每个学科各存一份，切学科不互相覆盖 ---------- */
@@ -731,6 +818,7 @@ const App = {
     if (!bank) return '';
     if (bank.id === '__wrong__') return 'wrong:' + (bank.folder || '');
     if (bank.id === '__fav__') return 'fav:' + (bank.favBankId || '');
+    if (bank.id === '__mix__' || bank.id === '__review__') return 'special:' + bank.id;
     return 'bank:' + bank.id;
   },
 
@@ -1129,10 +1217,21 @@ const App = {
 
   async afterAnswer(correct, userAnswer, q) {
     const duration = Math.round((Date.now() - this._qStart) / 1000);
+    const bankId = q.bankId || this.currentBank.id;
     await Achievements.recordAttempt({
-      questionId: q.id, bankId: q.bankId || this.currentBank.id,
+      questionId: q.id, bankId,
       userAnswer, correct, durationSec: duration
     });
+    // 间隔复习：答错进队列，复习轮答对推进阶段；变式题是一次性的，不进复习表
+    const inReviewQuiz = !!(this.currentBank && this.currentBank.id === '__review__');
+    const isVariant = !!(this.currentBank && this.currentBank.id === '__variant__');
+    if (!isVariant) await Achievements.updateReview(q.id, bankId, correct, inReviewQuiz);
+    // 小积分：答对 +1，复习轮 +2，变式题 +2（肯用 harder 方式练，值得多给）
+    if (correct) {
+      const pts = inReviewQuiz ? 2 : isVariant ? 2 : 1;
+      const reason = inReviewQuiz ? 'review' : isVariant ? 'variant' : 'correct';
+      await Achievements.addPoints(pts, reason);
+    }
     if (!this._attemptCounts) this._attemptCounts = {};
     this._attemptCounts[q.id] = (this._attemptCounts[q.id] || 0) + 1;
     const doneBankId = q.bankId || (this.currentBank && this.currentBank.id);
@@ -1302,6 +1401,10 @@ const App = {
   async renderWrong() {
     await this.refreshAttemptCounts();
     const list = await Achievements.wrongBook();
+    // 复习调度状态（用于标注「今天该复习」）
+    const reviews = await DB.allReviews();
+    this._reviewMap = {};
+    reviews.forEach(r => this._reviewMap[r.questionId] = r);
     const el = document.getElementById('wrongBody');
     if (!list.length) {
       el.innerHTML = `<div class="empty"><div class="empty-mark">◇</div><div class="empty-title">错题本是空的</div><div>很好，或者说明你还没开始刷——两种情况都值得高兴。</div></div>`;
@@ -1344,12 +1447,17 @@ const App = {
         const q = item.question;
         const solved = !isLeft(item);
         const bankName = (bankMap[q.bankId] || {}).name || '未知题库';
+        const rv = this._reviewMap && this._reviewMap[q.id];
+        const rvHint = rv && !rv.graduated
+          ? ` · <span style="color:var(--orange-deep)">🧠 ${rv.dueAt <= Date.now() ? '今天该复习' : '复习排队中'}</span>`
+          : (rv && rv.graduated ? ' · <span style="color:var(--green)">复习已毕业</span>' : '');
         return `<div class="preview-q">
           <div class="preview-q-type">${q.type === 'choice' ? '选择题' : '题目'} · ${this.esc(bankName)} · ${this.doneBadge(q.id)}${solved
             ? ' · <span style="color:var(--green)">已攻克</span>'
-            : ' · <span style="color:var(--clay)">仍待攻克</span>'}</div>
+            : ' · <span style="color:var(--clay)">仍待攻克</span>'}${rvHint}</div>
           <div class="preview-q-stem">${this.formatStem(q.stem)}</div>
           <div class="answer-box ok" style="margin-top:10px;padding:10px 14px;font-size:12.5px">正确答案：${this.esc(q.answer)}</div>
+          <div style="margin-top:8px"><button class="btn mini" onclick="App.makeVariants('${q.id}')">✨ 出变式题练练</button></div>
         </div>`;
       }).join('');
       return `
@@ -1413,14 +1521,56 @@ const App = {
     this.renderQuestion();
   },
 
+  /** 从一道错题生成同考点变式题，生成后直接进入练习（不写入原题库） */
+  async makeVariants(questionId) {
+    const q = await DB.getQuestion(questionId);
+    if (!q) { alert('这道题已被删除'); return; }
+    this.showLoading('正在围绕这个考点出变式题…');
+    try {
+      const { questions } = await LLM.generateVariants(q, 3);
+      this.hideLoading();
+      this._variantSource = q;
+      this._variantCache = this._variantCache || {};
+      this._variantCache[questionId] = questions;
+      this.startVariantQuiz(questionId);
+    } catch (e) {
+      this.hideLoading();
+      alert('变式题生成失败：' + (e && e.message ? e.message : '请稍后重试'));
+    }
+  },
+
+  /** 开始一组变式题练习 */
+  startVariantQuiz(sourceQuestionId) {
+    const questions = this._variantCache && this._variantCache[sourceQuestionId];
+    if (!questions || !questions.length) {
+      // 重开应用后内存缓存丢失：提示回错题本重新生成（原题还在，不会丢）
+      alert('重开应用后变式题需要重新生成，已经带你回错题本。');
+      return this.go('wrong');
+    }
+    const src = this._variantSource || {};
+    this.currentBank = {
+      id: '__variant__', name: `变式练习 · ${String(src.stem || '错题').slice(0, 16)}`,
+      folder: '', sourceQuestionId
+    };
+    this.quizQueue = questions.slice().sort(() => Math.random() - 0.5);
+    this.quizIndex = 0;
+    this.quizProgressIndex = 0;
+    this.quizAnswers = [];
+    this.quizStartTs = Date.now();
+    this._sessionKey = this.sessionKeyFor(this.currentBank);
+    this.saveQuizSession();
+    this.switchView('practice');
+    this.renderQuestion();
+  },
+
   /** 练习结束页的「再来一轮」：错题/收藏轮次再练各自那组，普通轮次重刷本题库 */
   retryLastQuiz() {
-    if (this.currentBank && this.currentBank.id === '__wrong__') {
-      return this.startWrongQuiz(this.currentBank.folder || '');
-    }
-    if (this.currentBank && this.currentBank.id === '__fav__') {
-      return this.startFavoriteQuiz(this.currentBank.favBankId || '');
-    }
+    if (!this.currentBank) return;
+    if (this.currentBank.id === '__wrong__') return this.startWrongQuiz(this.currentBank.folder || '');
+    if (this.currentBank.id === '__fav__') return this.startFavoriteQuiz(this.currentBank.favBankId || '');
+    if (this.currentBank.id === '__mix__') return this.startMixedQuiz();
+    if (this.currentBank.id === '__review__') return this.startReviewQuiz();
+    if (this.currentBank.id === '__variant__') return this.startVariantQuiz(this.currentBank.sourceQuestionId);
     return this.startQuizById(this.currentBank.id);
   },
 
@@ -1548,6 +1698,8 @@ const App = {
     const life = await Achievements.lifetimeStats();
     const rec = await Achievements.dailyRecords();
     const today = await Achievements.todayStats();
+    const pts = await Achievements.getPoints();
+    const rv = await Achievements.reviewStats();
     const all = await DB.getAttempts();
     const totalQ = all.length;
     const right = all.filter(a => a.correct).length;
@@ -1568,6 +1720,19 @@ const App = {
         <div class="ach-stat"><div class="ach-stat-val">${Achievements.formatDuration(life.totalSeconds)}</div><div class="ach-stat-lbl">累计学习时长</div></div>
         <div class="ach-stat"><div class="ach-stat-val">${rec.maxQ}<span style="font-size:13px"> 题</span></div><div class="ach-stat-lbl">最佳单日${rec.maxQDate ? ' · ' + rec.maxQDate.slice(5) : ''}</div></div>
         <div class="ach-stat"><div class="ach-stat-val">${accuracy}%</div><div class="ach-stat-lbl">总正确率</div></div>
+      </div>
+
+      <div class="points-panel">
+        <div class="points-main">
+          <div class="points-coin">🏅</div>
+          <div><div class="points-big">${pts.total}</div><div class="points-lbl">我的小积分 · 今天 +${pts.today}</div></div>
+        </div>
+        <div class="points-detail">
+          <div>普通答对 <b>+${(pts.byReason || {}).correct || 0}</b> 分</div>
+          <div>复习答对 <b>+${(pts.byReason || {}).review || 0}</b> 分</div>
+          <div>变式练习 <b>+${(pts.byReason || {}).variant || 0}</b> 分</div>
+          <div>复习毕业 <b>${rv.graduated}</b> 题 · 排队 <b>${rv.active}</b> 题</div>
+        </div>
       </div>
 
       <div class="ach-sec">
@@ -1680,9 +1845,13 @@ const App = {
   },
 
   async clearData() {
-    if (!confirm('确定清除所有题库、答题记录和学习时长吗？此操作不可恢复。')) return;
+    if (!confirm('确定清除所有题库、答题记录、积分和复习进度吗？此操作不可恢复。')) return;
     if (!confirm('请再次确认：真的要清空全部数据？')) return;
     await DB.clearAll();
+    // settings 表不清（存着 API Key），但积分和刷题存档要归零
+    await DB.setSetting('points', { total: 0, today: 0, date: new Date().toISOString().slice(0, 10), byReason: {} });
+    try { localStorage.removeItem(QUIZ_SESSION_KEY); } catch (e) {}
+    this._attemptCounts = {}; this._bankQuestions = {};
     alert('已清空全部数据。');
     this.go('home');
   },

@@ -174,6 +174,19 @@ button { cursor: pointer; }
 .goal-track { height: 11px; background: #f6e7d7; border-radius: 99px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,.03); }
 .goal-fill { height: 100%; background: linear-gradient(90deg, var(--yellow), var(--orange)); border-radius: 99px; transition: width .45s ease; }
 
+/* 首页两条小提示：积分 + 待复习 */
+.today-strips { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.points-strip, .review-strip {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  padding: 9px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--line); background: var(--paper-2); color: var(--ink-2);
+}
+.points-strip { cursor: pointer; background: #fff6e2; border-color: #f2d9a8; }
+.points-strip b, .review-strip b { color: var(--orange-deep); font-size: 14px; }
+.today-only { color: var(--green); font-size: 11px; }
+.strip-arrow { color: var(--orange-deep); font-size: 11px; margin-left: auto; }
+.strip-goal { color: var(--ink-3); font-size: 10.5px; font-weight: 400; }
+
 /* ---------- 中部两卡 ---------- */
 .mid-row { display: grid; grid-template-columns: 1.15fr .85fr; gap: 18px; margin-bottom: 18px; }
 .panel {
@@ -289,6 +302,7 @@ button { cursor: pointer; }
 .btn.danger { background: #fff; border-color: #ecc9bb; color: #b96147; }
 .btn.danger:hover { background: var(--clay-soft); }
 .btn.wide { width: 100%; margin-top: 12px; }
+.btn.mini { font-size: 11px; padding: 5px 11px; border-radius: 8px; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .quick-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .hint-text { font-size: 11.5px; color: var(--ink-3); margin-top: 10px; line-height: 1.7; }
@@ -482,6 +496,27 @@ button { cursor: pointer; }
 .resume-title { font-size: 15px; font-weight: 800; color: var(--ink); }
 .resume-meta { font-size: 12px; color: var(--ink-2); margin-top: 5px; }
 .resume-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 今日复习提醒 + 交错混合开关 */
+.review-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  background: #eaf5ee; border: 1px solid #b9ddc8; border-radius: 16px; padding: 18px 22px; box-shadow: var(--shadow);
+}
+.review-card-title { font-size: 15px; font-weight: 800; color: var(--green-deep, #3f7a53); }
+.mix-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  background: var(--paper); border: 1px dashed var(--line); border-radius: 16px; padding: 14px 20px;
+}
+.mix-title { font-size: 14px; font-weight: 800; color: var(--ink); }
+.mix-card { width: 100%; }
+.toggle {
+  width: 46px; height: 26px; border-radius: 99px; border: none; flex-shrink: 0;
+  background: #ddd7cd; padding: 3px; cursor: pointer; transition: background .2s;
+}
+.toggle span { display: block; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+.toggle.on { background: var(--orange); }
+.toggle.on span { transform: translateX(20px); }
+
 /* 边学边问：做题区 + 右侧 AI 面板 */
 .practice-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
 .practice-main { min-width: 0; }
@@ -610,6 +645,22 @@ button { cursor: pointer; }
 .ach-stat { flex: 1; min-width: 130px; background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; box-shadow: var(--shadow); }
 .ach-stat-val { font-size: 28px; font-weight: 800; color: var(--orange-deep); line-height: 1.1; }
 .ach-stat-lbl { font-size: 11.5px; color: var(--ink-3); margin-top: 4px; }
+
+/* 小积分面板 */
+.points-panel {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  background: linear-gradient(100deg, #fff6e2, #fffaf0);
+  border: 1px solid #f2d9a8; border-radius: 18px; padding: 18px 24px; margin-bottom: 22px;
+}
+.points-main { display: flex; align-items: center; gap: 14px; }
+.points-coin { font-size: 34px; }
+.points-big { font-size: 30px; font-weight: 800; color: var(--orange-deep); line-height: 1; }
+.points-lbl { font-size: 12px; color: var(--ink-2); margin-top: 5px; }
+.points-detail {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 5px 22px;
+  font-size: 12px; color: var(--ink-2);
+}
+.points-detail b { color: var(--orange-deep); }
 
 /* ---------- 设置 ---------- */
 .settings-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
