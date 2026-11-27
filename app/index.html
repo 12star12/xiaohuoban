@@ -133,9 +133,16 @@
             <label class="btn file-btn">上传文件（PDF / Word / TXT / MD）
               <input type="file" id="importFile" accept=".pdf,.docx,.doc,.txt,.md,.markdown,.json" hidden>
             </label>
+            <label class="btn file-btn batch-btn">📚 批量导入 MD（多份各自成库）
+              <input type="file" id="batchFiles" accept=".md,.markdown,.txt" multiple hidden>
+            </label>
             <span class="hint-text" id="charCount">0 字</span>
           </div>
           <p class="hint-text" style="margin-top:6px">支持 PDF、Word（.docx）、TXT、Markdown、JSON；PDF 直接提取文字，扫描版图片 PDF 需先用 OCR。</p>
+          <div class="batch-hint">
+            批量导入：一次选多份 md / txt，<b>每份各自生成一个题库</b>，不合并。题库名从文件里读——在 md 开头写
+            <code>题库名：xxx</code> 或 <code># xxx</code> 就行（没写就用文件名）。<span id="batchModeTip"></span>
+          </div>
         </div>
         <div class="panel import-side">
           <div class="panel-title">归入学科</div>
@@ -149,6 +156,14 @@
             <span class="mode-tag wait" id="modeTag">待识别</span>
             <span class="mode-text" id="modeText">粘贴后自动判断：现成题目就直接整理，知识点整理才让模型出题。</span>
             <button type="button" class="mode-btn" id="modeBtn" onclick="App.toggleImportMode()" style="display:none">切换</button>
+          </div>
+          <div class="batch-mode" id="batchModeRow">
+            <label for="batchMode">批量模式</label>
+            <select id="batchMode" class="field" onchange="App.updateBatchModeTip()">
+              <option value="extract" selected>整理原题（自己出好的题）</option>
+              <option value="generate">让模型出题</option>
+              <option value="auto">每份自动识别</option>
+            </select>
           </div>
           <div class="gen-opt" id="perChapterRow">
             <label for="perChapter">每章题量</label>
@@ -165,6 +180,7 @@
         </div>
       </div>
       <div id="previewArea"></div>
+      <div id="batchArea"></div>
     </section>
 
     <!-- 刷题 -->
@@ -290,9 +306,9 @@
 
 <script src="js/data-encouragements.js"></script>
 <script src="js/data-quotes.js"></script>
-<script src="js/db.js?v=20261126b"></script>
-<script src="js/llm.js?v=20261126b"></script>
-<script src="js/achievements.js?v=20261126b"></script>
-<script src="js/app.js?v=20261126b"></script>
+<script src="js/db.js?v=20261127a"></script>
+<script src="js/llm.js?v=20261127a"></script>
+<script src="js/achievements.js?v=20261127a"></script>
+<script src="js/app.js?v=20261127a"></script>
 </body>
 </html>

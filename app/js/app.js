@@ -439,6 +439,41 @@ const App = {
         e.target.value = '';
       }
     });
+    const batchInput = document.getElementById('batchFiles');
+    if (batchInput) batchInput.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (files.length) await this.batchImport(files);
+    });
+    this.updateBatchModeTip();
+  },
+
+  /** 批量模式说明文案 */
+  updateBatchModeTip() {
+    const el = document.getElementById('batchModeTip');
+    if (!el) return;
+    const m = (document.getElementById('batchMode') || {}).value || 'extract';
+    el.textContent = m === 'extract' ? '批量默认按「整理原题」处理，不重新出题。'
+      : m === 'generate' ? '批量会按章节让模型重新出题。'
+      : '批量会逐份自动判断是现成题还是知识点。';
+  },
+
+  /** 从 md 内容里读题库名：题库名:/标题:/名称: → 一级标题 # → 文件名兜底 */
+  extractMdName(text, fileName) {
+    const lines = String(text || '').split(/\r?\n/);
+    // 1) 显式标注：题库名：xxx / 标题：xxx / 名称：xxx
+    for (let i = 0; i < Math.min(lines.length, 30); i++) {
+      const ln = lines[i].trim().replace(/^[#>*\s]+/, '').replace(/\*+$/, '').trim();
+      const m = /^(?:题库名|题库名称|标题|名称|name)\s*[:：]\s*(.+)$/i.exec(ln);
+      if (m && m[1].trim()) return m[1].trim().slice(0, 40);
+    }
+    // 2) Markdown 一级标题 # xxx（跳过纯分隔/empty）
+    for (let i = 0; i < Math.min(lines.length, 30); i++) {
+      const m = /^#{1,2}\s+(.+?)\s*$/.exec(lines[i].trim());
+      if (m && m[1].trim() && m[1].length <= 50) return m[1].trim().replace(/\*/g, '').slice(0, 40);
+    }
+    // 3) 文件名兜底
+    return String(fileName || '未命名题库').replace(/\.(md|markdown|txt)$/i, '').slice(0, 40) || '未命名题库';
   },
 
   /* ---------- 导入模式：现成题目就只整理，知识点整理才让模型出题 ---------- */
@@ -663,23 +698,9 @@ const App = {
     if (!r) return;
     this.showLoading('正在保存…');
     try {
-      const bankId = 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
       const folderEl = document.getElementById('importFolder');
       const folder = (folderEl && folderEl.value.trim()) || '未分类';
-      await DB.putBank({
-        id: bankId,
-        name: r.title,
-        folder: folder,
-        summary: r.summary,
-        count: r.questions.length,
-        tags: Array.from(new Set(r.questions.flatMap(q => q.tags || []))),
-        createdAt: Date.now()
-      });
-      await DB.putQuestions(r.questions.map(q => {
-        const copy = Object.assign({}, q, { bankId });
-        delete copy._warn;   // 质检标记不入库
-        return copy;
-      }));
+      await this.saveBankObject(r, r.title, folder);
       this._preview = null;
       document.getElementById('importText').value = '';
       document.getElementById('previewArea').innerHTML = '';
@@ -690,6 +711,103 @@ const App = {
       this.hideLoading();
       alert('保存失败：' + e.message);
     }
+  },
+
+  /* ---------- 批量导入：多份 md 各自成库 ---------- */
+  async batchImport(files) {
+    const sel = document.getElementById('batchMode');
+    const batchMode = sel ? (sel.value || 'extract') : 'extract';
+    const perChapter = parseInt((document.getElementById('perChapter') || {}).value, 10) || 5;
+    const folder = ((document.getElementById('importFolder') || {}).value || '').trim() || '未分类';
+    const area = document.getElementById('batchArea');
+    const results = [];
+    this.showLoading(`准备批量导入 ${files.length} 份资料…`);
+
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const prefix = `批量导入 ${i + 1}/${files.length}：`;
+      try {
+        this.setLoadingText(prefix + '读取文件…');
+        let text = '';
+        const ext = (f.name.split('.').pop() || '').toLowerCase();
+        if (ext === 'pdf') text = await this.readPdf(f);
+        else if (ext === 'docx' || ext === 'doc') text = await this.readDocx(f);
+        else text = await f.text();
+
+        if (!text.trim()) { results.push({ file: f.name, ok: false, msg: '文件里没有读到文字' }); continue; }
+        if (text.trim().length < 20) { results.push({ file: f.name, ok: false, msg: '内容太少（不足 20 字）' }); continue; }
+
+        const name = this.extractMdName(text, f.name);
+        // 模式：显式指定则沿用；auto 则逐份识别
+        const mode = batchMode === 'auto' ? (LLM.detect(text).mode || 'generate') : batchMode;
+        this.setLoadingText(prefix + name + (mode === 'extract' ? ' · 整理原题…' : ' · 出题…'));
+        const result = await LLM.structure(text, { perChapter, mode },
+          (msg) => this.setLoadingText(prefix + name + ' · ' + msg));
+
+        if (!result.questions.length) {
+          results.push({ file: f.name, name, ok: false, msg: '没整理出题目' });
+          continue;
+        }
+        await this.saveBankObject(result, name, folder);
+        results.push({
+          file: f.name, name, ok: true, count: result.questions.length,
+          mode, skipped: result.skipped || 0, inferred: result.inferred || 0,
+          restored: result.restored || 0, fixes: result.fixes || []
+        });
+      } catch (e) {
+        results.push({ file: f.name, ok: false, msg: (e && e.message) || '处理失败' });
+      }
+    }
+
+    this.hideLoading();
+    this.renderBatchResult(results, folder);
+  },
+
+  /** 把一份生成结果落库（单份保存与批量共用） */
+  async saveBankObject(result, name, folder) {
+    const bankId = 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    await DB.putBank({
+      id: bankId,
+      name: name || result.title || '未命名题库',
+      folder: folder || '未分类',
+      summary: result.summary || '',
+      count: result.questions.length,
+      tags: Array.from(new Set(result.questions.flatMap(q => q.tags || []))),
+      createdAt: Date.now()
+    });
+    await DB.putQuestions(result.questions.map(q => {
+      const copy = Object.assign({}, q, { bankId });
+      delete copy._warn;
+      return copy;
+    }));
+    return bankId;
+  },
+
+  renderBatchResult(results, folder) {
+    const area = document.getElementById('batchArea');
+    if (!area) return;
+    const ok = results.filter(r => r.ok);
+    const fail = results.filter(r => !r.ok);
+    const rows = results.map(r => {
+      if (!r.ok) return `<div class="batch-row bad"><span class="batch-ico">✗</span><div><b>${this.esc(r.file)}</b><div class="hint-text">${this.esc(r.msg)}</div></div></div>`;
+      const warns = [];
+      if (r.skipped) warns.push(`末尾约 ${r.skipped} 批未处理，建议拆细`);
+      if (r.inferred) warns.push(`${r.inferred} 道答案由模型补，建议核对`);
+      if (r.restored) warns.push(`还原 ${r.restored} 道原文解析`);
+      return `<div class="batch-row"><span class="batch-ico">✓</span><div>
+        <b>${this.esc(r.name)}</b> <span class="batch-count">${r.count} 题</span>
+        <div class="hint-text">来自 ${this.esc(r.file)} · ${r.mode === 'extract' ? '整理原题' : '模型出题'}${warns.length ? ' · <span style="color:var(--clay)">' + this.esc(warns.join('；')) + '</span>' : ''}</div>
+      </div></div>`;
+    }).join('');
+    area.innerHTML = `<div class="batch-result">
+      <div class="batch-result-head">
+        <div class="panel-title">批量导入完成</div>
+        <div class="hint-text" style="margin-top:0">成功 ${ok.length} 份 · 共 ${ok.reduce((n, r) => n + r.count, 0)} 道题${fail.length ? ' · 失败 ' + fail.length + ' 份' : ''} · 归入「${this.esc(folder)}」</div>
+      </div>
+      <div class="batch-rows">${rows}</div>
+      <div class="batch-actions"><button class="btn primary" onclick="App.go('library')">去看题库 →</button></div>
+    </div>`;
+    area.scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
 
   /* ---------- 刷题 ---------- */

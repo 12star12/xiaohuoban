@@ -417,8 +417,30 @@ button { cursor: pointer; }
   background: #fffdf9; color: var(--ink); outline: none;
 }
 .import-text:focus { border-color: var(--orange); }
-.import-tools { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+.import-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .file-btn { display: inline-block; }
+.batch-btn { background: var(--green-soft, #eaf5ee); color: #3f7a53; border-color: #b9ddc8; }
+.batch-hint {
+  margin-top: 10px; padding: 10px 14px; border-radius: 12px;
+  background: #f3f8f4; border: 1px solid #cfe4d6;
+  font-size: 11.5px; line-height: 1.7; color: var(--ink-2);
+}
+.batch-hint b { color: #3f7a53; }
+.batch-hint code { background: #fff; border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; font-size: 11px; }
+.batch-mode { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 14px 0 4px; font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
+.batch-mode .field { padding: 7px 10px; font-size: 12px; width: auto; flex: 1; max-width: 210px; }
+
+/* 批量导入结果 */
+.batch-result { margin-top: 20px; background: var(--paper); border: 1px solid var(--line); border-radius: 18px; padding: 20px 24px; box-shadow: var(--shadow); }
+.batch-result-head { border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+.batch-rows { display: grid; gap: 8px; margin: 14px 0; }
+.batch-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--paper-2); font-size: 13px; }
+.batch-row.bad { background: #fdf0ea; }
+.batch-ico { color: var(--green); font-weight: 800; }
+.batch-row.bad .batch-ico { color: var(--clay); }
+.batch-count { color: var(--orange-deep); font-size: 11.5px; font-weight: 700; }
+.batch-row .hint-text { margin-top: 3px; }
+.batch-actions { text-align: right; }
 .gen-opt {
   display: flex; align-items: center; justify-content: space-between;
   gap: 10px; margin: 14px 0 8px;
