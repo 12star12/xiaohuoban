@@ -119,8 +119,13 @@
       });
     },
     async getQuestions(bankId) {
-      return tx('questions', 'readonly', s =>
+      const qs = await tx('questions', 'readonly', s =>
         reqToPromise(s.index('bankId').getAll(IDBKeyRange.only(bankId))));
+      // 有 order 字段的按原顺序（整理原题时保留用户顺序）；老数据没有 order 则按 id（含时间戳）排，结果一致
+      return qs.slice().sort((a, b) => {
+        if (typeof a.order === 'number' && typeof b.order === 'number') return a.order - b.order;
+        return String(a.id).localeCompare(String(b.id));
+      });
     },
     async getQuestion(id) {
       return tx('questions', 'readonly', s => reqToPromise(s.get(id)));

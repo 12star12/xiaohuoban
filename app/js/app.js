@@ -277,7 +277,9 @@ const App = {
         <div class="bank-item" id="bankItem_${b.id}">
           <div>
             <div class="bank-title"><span class="bank-title-link" onclick="App.toggleBankQuestions('${b.id}')" title="点击看这套题的题目">${this.esc(b.name)}</span> ${this.bankDoneBadge(b.id)}</div>
-            <div class="bank-meta">${b.count} 道题 · ${new Date(b.createdAt).toLocaleDateString('zh-CN')}${b.summary ? ' · ' + this.esc(b.summary) : ''}</div>
+            <div class="bank-meta">${b.count} 道题 · ${new Date(b.createdAt).toLocaleDateString('zh-CN')}${b.summary ? ' · ' + this.esc(b.summary) : ''}
+              <button class="order-toggle" onclick="App.toggleBankOrder('${b.id}')" title="切换刷题时的顺序">${b.keepOrder ? '按你整理的顺序' : '随机顺序'} ⇄</button>
+            </div>
             <div class="bank-tags">${tags}</div>
           </div>
           <div class="bank-actions">
@@ -351,6 +353,16 @@ const App = {
       }
     }
     this.renderLibrary();
+  },
+
+  /** 切换刷题顺序：按原顺序 ⇄ 随机打乱 */
+  async toggleBankOrder(bankId) {
+    const banks = await DB.getBanks();
+    const bank = banks.find(b => b.id === bankId);
+    if (!bank) return;
+    bank.keepOrder = !bank.keepOrder;
+    await DB.putBank(bank);
+    await this.renderLibrary();
   },
 
   /** 给一套题（一节）改名 */
@@ -766,6 +778,8 @@ const App = {
   /** 把一份生成结果落库（单份保存与批量共用） */
   async saveBankObject(result, name, folder) {
     const bankId = 'b_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    // 整理原题的题库保留用户原顺序；模型出题的题库维持打乱
+    const keepOrder = result.mode === 'extract';
     await DB.putBank({
       id: bankId,
       name: name || result.title || '未命名题库',
@@ -773,10 +787,11 @@ const App = {
       summary: result.summary || '',
       count: result.questions.length,
       tags: Array.from(new Set(result.questions.flatMap(q => q.tags || []))),
+      keepOrder: keepOrder,
       createdAt: Date.now()
     });
-    await DB.putQuestions(result.questions.map(q => {
-      const copy = Object.assign({}, q, { bankId });
+    await DB.putQuestions(result.questions.map((q, i) => {
+      const copy = Object.assign({}, q, { bankId, order: i });
       delete copy._warn;
       return copy;
     }));
@@ -1085,8 +1100,8 @@ const App = {
     if (!bank) return;
     let questions = await DB.getQuestions(bankId);
     if (!questions.length) { alert('这套题库没有题目'); return; }
-    // 打乱顺序
-    questions = questions.slice().sort(() => Math.random() - 0.5);
+    // 整理原题的题库按用户原顺序刷；其余（模型出题等）打乱
+    if (!bank.keepOrder) questions = questions.slice().sort(() => Math.random() - 0.5);
     this.currentBank = bank;
     this.quizQueue = questions;
     this.quizIndex = 0;
